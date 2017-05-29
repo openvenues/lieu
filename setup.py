@@ -18,7 +18,7 @@ def main():
         scripts=['scripts/dedupe_geojson'],
         zip_safe=False,
         url='https://github.com/openvenues/lieu',
-        description='Deduping places around the world',
+        description='Dedupe addresses and venues around the world with libpostal',
         license='MIT License',
         maintainer='mapzen.com',
         maintainer_email='pelias@mapzen.com',

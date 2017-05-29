@@ -1,0 +1,201 @@
+#!/usr/env/bin python
+
+import argparse
+import leveldb
+import os
+import shutil
+import subprocess
+import uuid
+
+import ujson as json
+from collections import Counter, defaultdict
+
+from lieu.address import Address, AddressComponents
+from lieu.dedupe import VenueDeduper, AddressDeduper, NameDeduper
+from lieu.encoding import safe_encode, safe_decode
+from lieu.idf import IDFIndex
+from lieu.input import GeoJSONParser, GeoJSONLineParser
+
+from postal.expand import ADDRESS_NAME
+
+EXACT_DUPE = 'exact_dupe'
+LIKELY_DUPE = 'likely_dupe'
+
+
+def open_geojson_file(filename):
+    try:
+        f = GeoJSONLineParser(filename)
+        f.next_feature()
+        f = GeoJSONLineParser(filename)
+    except ValueError:
+        f = GeoJSONParser(filename)
+
+    return f
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('files', nargs='*')
+
+    parser.add_argument('--address-only',
+                        action='store_true',
+                        default=False,
+                        help='Address duplicates only')
+
+    parser.add_argument('-output-dir', '-o',
+                        default='deduped',
+                        help='Output directory')
+
+    parser.add_argument('--guids-db-name', '-g',
+                        default='guids_db',
+                        help='Path to database to store guids')
+
+    parser.add_argument('--temp-filename', '-t',
+                        default='near_dupes',
+                        help='Temporary sort file')
+
+    parser.add_argument('--output-filename', '-f',
+                        default='deduped.geojson',
+                        help='Output filename')
+
+    parser.add_argument('--name-dupe-threshold', '-n',
+                        type=float,
+                        default=NameDeduper.default_dupe_threshold,
+                        help='Threshold between 0 and 1 for name deduping with Soft-TFIDF')
+
+    args = parser.parse_args()
+
+    address_only = args.address_only
+
+    idf_index = None
+    if not address_only:
+        idf_index = IDFIndex()
+
+    deduper = VenueDeduper if not address_only else AddressDeduper
+
+    temp_filename = os.path.join(args.output_dir, args.temp_filename)
+    map_file = open(temp_filename, 'w')
+
+    print('Near-dupe tempfile: {}'.format(temp_filename))
+
+    guids_db_path = os.path.join(args.output_dir, args.guids_db_name)
+    leveldb.DestroyDB(guids_db_path)
+
+    print('Guids DB: {}'.format(guids_db_path))
+
+    guids_db = leveldb.LevelDB(guids_db_path)
+
+    out_path = os.path.join(args.output_dir, args.output_filename)
+    out_file = open(out_path, 'w')
+
+    print('Output filename: {}'.format(out_path))
+    print('-----------------------------')
+
+    print('* Assigning GUIDs, creating near-dupe hashes{}'.format(' + IDF index' if not address_only else ''))
+    for filename in args.files:
+        f = open_geojson_file(filename)
+
+        for feature in f:
+            guid = uuid.uuid4().get_hex()
+            guids_db.Put(guid, json.dumps(feature))
+
+            address = Address.from_geojson(feature)
+
+            if not address_only:
+                name = address.get(AddressComponents.NAME)
+                idf_index.update(Counter(name.lower().split()))
+
+            hashes = deduper.near_dupe_hashes(address)
+            for h in hashes:
+                map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
+
+    map_file.close()
+
+    print('* Sorting temporary near-dupe file by hash')
+
+    sorted_temp_filename = '{}.sorted'.format(temp_filename)
+
+    subprocess.check_call(['sort', '-t', '\t', '-k1,1', '-s', temp_filename, '-o', sorted_temp_filename])
+
+    last_key = None
+    candidate_dupes = []
+
+    print('* Checking candidate pairs for exact dupes')
+
+    dupe_pairs = defaultdict(set)
+    num_comparisons = 0
+
+    for i, line in enumerate(open(sorted_temp_filename)):
+        key, value = safe_decode(line).rstrip().split(u'\t', 1)
+
+        if last_key is None or key == last_key:
+            candidate_dupes.append(value)
+        elif candidate_dupes:
+            canonical_guid = candidate_dupes[0]
+
+            if len(candidate_dupes) > 1:
+                canonical_feature = json.loads(guids_db.Get(canonical_guid))
+                canonical = Address.from_geojson(canonical_feature)
+
+                for other_guid in candidate_dupes[1:]:
+                    other_feature = json.loads(guids_db.Get(other_guid))
+                    other = Address.from_geojson(other_feature)
+                    if not address_only and VenueDeduper.is_dupe(canonical, other, idf=idf_index, name_dupe_threshold=args.name_dupe_threshold):
+                        dupe_pairs[other_guid].add(canonical_guid)
+                    elif address_only and AddressDeduper.is_dupe(canonical, other):
+                        dupe_pairs[other_guid].add(canonical_guid)
+
+                    num_comparisons += 1
+
+            candidate_dupes = [value]
+
+        last_key = key
+
+    print('  did {} out of {} possible comparisons'.format(num_comparisons, i))
+
+    print('* Building output file')
+
+    for guid, value in guids_db.RangeIter():
+        value = json.loads(value)
+        response = {
+            'guid': guid,
+            'object': value
+        }
+        if guid not in dupe_pairs:
+            response['is_dupe'] = False
+        else:
+            response['is_dupe'] = True
+            same_as = []
+            for other_guid in dupe_pairs[guid]:
+                other_value = json.loads(guids_db.Get(other_guid))
+                exact_match = True
+                if not address_only:
+                    canonical = Address.from_geojson(value)
+                    a1_name = canonical.get(AddressComponents.NAME)
+                    other = Address.from_geojson(other_value)
+                    a2_name = other.get(AddressComponents.NAME)
+                    if a1_name and a2_name:
+                        exact_match = VenueDeduper.component_equals(a1_name, a2_name, ADDRESS_NAME)
+
+                explain = ['Same normalized address',
+                           'Nearby geohash',
+                           ]
+
+                if not address_only and exact_match:
+                    explain.append('Same normalized name')
+                elif not address_only and not exact_match:
+                    explain.append('Soft-TFIDF >= threshold ({})'.format(args.name_dupe_threshold))
+
+                same_as.append({
+                    'is_canonical': other_guid not in dupe_pairs,
+                    'guid': other_guid,
+                    'classification': EXACT_DUPE if exact_match else LIKELY_DUPE,
+                    'object': other_value,
+                    'explain': explain,
+                })
+
+            response['same_as'] = same_as
+        out_file.write(json.dumps(response) + '\n')
+
+    out_file.close()
+    print('Finished. Got {} dupe records'.format(len(dupe_pairs)))
