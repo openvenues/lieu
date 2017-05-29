@@ -35,9 +35,9 @@ Addresses are not an exact science, so even the term "exact" here means "sharing
 
 For street name/house number, we require this sort of exact match, but more freedom is allowed in the venue/business name. A likely dupe may have some minor misspellings, may be missing common words like "Inc" or "Restaurant", and may use different word orders (common with professionsals e.g. "Obama, Barack" instead of "Barack Obama").
 
-## Exampels of likely dupes
+## Examples of likely dupes
 
-Below were some of the likely dupes extracted during a test-run using WoF/SimpleGeo and a subset of OSM venues in San Francisco:
+Below were some of the likely dupes extracted during a test-run using WoF/SimpleGeo and a subset of OSM venues in San Francisco (note that all of these also share a house number and street address expansion and have the same geohash or are immediate neighbors):
 
 |     Name 1        |       Name 2      |
 | ----------------- | ----------------- |
