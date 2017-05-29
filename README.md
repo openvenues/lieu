@@ -23,9 +23,9 @@ WoF and OSM field names are supported in this project (again: it's a prototype a
 
 At present, all venues are required to have the following properties:
 
-- *name*: the venue/company/professional's name
-- *street*: street name, reasonable in most countries but that assumption may need to be relaxed for e.g. Japan (where "suburb" would be the closest thing to street)
-- *house_number*: needs to be parsed out into its own field. If not, feel free to use libpostal's parser to extract a house number from the street field.
+- **name**: the venue/company/professional's name
+- **street**: street name, reasonable in most countries but that assumption may need to be relaxed for e.g. Japan (where "suburb" would be the closest thing to street)
+- **house_number**: needs to be parsed out into its own field. If not, feel free to use libpostal's parser to extract a house number from the street field.
 
 Each record must also have a valid lat/lon (i.e. not Null Island) although entries within ~2-3km of each other can still be considered dupes if their names and addresses match. This should allow for even coordinates with relatively 
 
