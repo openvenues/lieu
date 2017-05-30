@@ -46,8 +46,8 @@ def soft_tfidf_similarity(tokens1, tokens2, idf,
     token1_counts = ordered_word_count(tokens1)
     token2_counts = ordered_word_count(tokens2)
 
-    tfidf1 = idf.tfidf_vector(token1_counts)
-    tfidf2 = idf.tfidf_vector(token2_counts)
+    tfidf1 = idf.normalized_tfidf_vector(token1_counts)
+    tfidf2 = idf.normalized_tfidf_vector(token2_counts)
 
     total_sim = 0.0
 
