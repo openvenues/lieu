@@ -129,6 +129,8 @@ if __name__ == '__main__':
 
     subprocess.check_call(['sort', '-t', '\t', '-T', args.output_dir, '-k1,1', '-s', temp_filename, '-o', sorted_temp_filename])
 
+    os.unlink(temp_filename)
+
     last_key = None
     candidate_dupes = []
 
@@ -164,6 +166,7 @@ if __name__ == '__main__':
         last_key = key
 
     print('  did {} out of {} possible comparisons'.format(num_comparisons, i))
+    os.unlink(sorted_temp_filename)
 
     print('* Building output file')
 
