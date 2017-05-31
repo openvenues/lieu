@@ -11,6 +11,7 @@ import ujson as json
 from collections import Counter, defaultdict
 
 from lieu.address import Address, AddressComponents
+from lieu.api import DedupeResponse
 from lieu.dedupe import VenueDeduper, AddressDeduper, NameDeduper
 from lieu.encoding import safe_encode, safe_decode
 from lieu.idf import IDFIndex
@@ -168,15 +169,10 @@ if __name__ == '__main__':
 
     for guid, value in guids_db.RangeIter():
         value = json.loads(value)
-        response = {
-            'guid': guid,
-            'object': value
-        }
-        if guid not in dupe_pairs:
-            response['is_dupe'] = False
-        else:
-            response['is_dupe'] = True
-            same_as = []
+        is_dupe = guid in dupe_pairs
+        response = DedupeResponse.base_response(guid, value, is_dupe)
+
+        if is_dupe:
             for other_guid in dupe_pairs[guid]:
                 other_value = json.loads(guids_db.Get(other_guid))
                 exact_match = True
@@ -197,15 +193,8 @@ if __name__ == '__main__':
                 elif not address_only and not exact_match:
                     explain.append('Soft-TFIDF >= threshold ({})'.format(args.name_dupe_threshold))
 
-                same_as.append({
-                    'is_canonical': other_guid not in dupe_pairs,
-                    'guid': other_guid,
-                    'classification': EXACT_DUPE if exact_match else LIKELY_DUPE,
-                    'object': other_value,
-                    'explain': explain,
-                })
+                DedupeResponse.add_same_as(response, guid=other_guid, value=other_value, classification=classification, is_canonical=is_canonical, explain=explain)
 
-            response['same_as'] = same_as
         out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
