@@ -15,7 +15,7 @@ class DedupeResponse(object):
 
     @classmethod
     def add_same_as(cls, response, guid, value, classification, is_canonical, explain=()):
-        response['same_as'].setdefault([])
+        response.setdefault('same_as', [])
         response['same_as'].append({
             'is_canonical': is_canonical,
             'guid': guid,
