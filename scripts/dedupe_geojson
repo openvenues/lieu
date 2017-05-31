@@ -50,6 +50,10 @@ if __name__ == '__main__':
                         default='guids_db',
                         help='Path to database to store guids')
 
+    parser.add_argument('--idf-index', '-d',
+                        default='idf.index',
+                        help='IDF index file')
+
     parser.add_argument('--temp-filename', '-t',
                         default='near_dupes',
                         help='Temporary sort file')
@@ -67,11 +71,13 @@ if __name__ == '__main__':
 
     address_only = args.address_only
 
+    idf_filename = os.path.join(args.output_dir, args.idf_index)
+
     idf_index = None
     if not address_only:
         idf_index = IDFIndex()
 
-    deduper = VenueDeduper if not address_only else AddressDeduper
+    print('IDF index file: {}'.format(idf_filename))
 
     temp_filename = os.path.join(args.output_dir, args.temp_filename)
     map_file = open(temp_filename, 'w')
@@ -104,12 +110,17 @@ if __name__ == '__main__':
             if not address_only:
                 name = address.get(AddressComponents.NAME)
                 idf_index.update(Counter(name.lower().split()))
+                hashes = VenueDeduper.near_dupe_hashes(address)
+            else:
+                hashes = AddressDeduper.near_dupe_hashes(address)
 
-            hashes = deduper.near_dupe_hashes(address)
             for h in hashes:
                 map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
 
     map_file.close()
+
+    if not address_only:
+        idf_index.save(idf_filename)
 
     print('* Sorting temporary near-dupe file by hash')
 
