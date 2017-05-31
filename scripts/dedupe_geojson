@@ -126,7 +126,7 @@ if __name__ == '__main__':
 
     sorted_temp_filename = '{}.sorted'.format(temp_filename)
 
-    subprocess.check_call(['sort', '-t', '\t', '-k1,1', '-s', temp_filename, '-o', sorted_temp_filename])
+    subprocess.check_call(['sort', '-t', '\t', '-T', args.output_dir, '-k1,1', '-s', temp_filename, '-o', sorted_temp_filename])
 
     last_key = None
     candidate_dupes = []
