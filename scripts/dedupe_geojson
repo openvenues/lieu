@@ -134,7 +134,7 @@ if __name__ == '__main__':
     last_key = None
     candidate_dupes = []
 
-    print('* Checking candidate pairs for exact dupes')
+    print('* Checking blocks of near-dupe candidates pairwise for dupes')
 
     dupe_pairs = defaultdict(set)
     num_comparisons = 0
