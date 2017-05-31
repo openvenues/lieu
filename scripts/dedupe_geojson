@@ -196,7 +196,10 @@ if __name__ == '__main__':
                 elif not address_only and not exact_match:
                     explain.append('Soft-TFIDF >= threshold ({})'.format(args.name_dupe_threshold))
 
-                DedupeResponse.add_same_as(response, guid=other_guid, value=other_value, classification=classification, is_canonical=is_canonical, explain=explain)
+                is_canonical = other_guid not in dupe_pairs
+                classification = EXACT_DUPE if exact_match else LIKELY_DUPE
+
+                DedupeResponse.add_same_as(response, other_guid, value=other_value, classification=classification, is_canonical=is_canonical, explain=explain)
 
         out_file.write(json.dumps(response) + '\n')
 
