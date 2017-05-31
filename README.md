@@ -13,7 +13,7 @@ Note: libpostal and its Python binding are required to use this library, setup i
 The ```dedupe_geojson``` command-line tool will be installed in the environment's bin dir and can be used like so:
 
 ```
-dedupe_geojson file1.geojson file2.geojson -o output_dir [--address-only]
+dedupe_geojson file1.geojson [file2.geojson ...] -o /some/output/dir [--address-only]
 ```
 
 ## Input formats
