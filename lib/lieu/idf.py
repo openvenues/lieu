@@ -1,7 +1,9 @@
 import math
+import ujson as json
+
 from collections import defaultdict
 
-from lieu.floats import *
+from lieu.floats import isclose
 
 
 class IDFIndex(object):
@@ -19,6 +21,32 @@ class IDFIndex(object):
             self.idf_counts[feature] += 1
 
         self.N += 1
+
+    def serialize(self):
+        return json.dumps({
+            'N': self.N,
+            'idf_counts': dict(self.idf_counts)
+        })
+
+    def write(self, f):
+        f.write(self.serialize())
+
+    def save(self, filename):
+        f = open(filename, 'w')
+        self.write(f)
+
+    @classmethod
+    def read(cls, f):
+        data = json.load(f)
+        idf = cls()
+        idf.N = data['N']
+        idf.idf_counts.update(data['idf_counts'])
+        return idf
+
+    @classmethod
+    def load(cls, filename):
+        f = open(filename)
+        return cls.read(f)
 
     def prune(self, min_count):
         self.idf_counts = {k: count for k, count in self.idf_counts.iteritems() if count >= min_count}
