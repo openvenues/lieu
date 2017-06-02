@@ -14,7 +14,7 @@ from lieu.address import Address, AddressComponents
 from lieu.api import DedupeResponse
 from lieu.dedupe import VenueDeduper, AddressDeduper, NameDeduper
 from lieu.encoding import safe_encode, safe_decode
-from lieu.idf import IDFIndex
+from lieu.tfidf import TFIDFIndex
 from lieu.input import GeoJSONParser, GeoJSONLineParser
 
 from postal.expand import ADDRESS_NAME
@@ -51,9 +51,9 @@ if __name__ == '__main__':
                         default='guids_db',
                         help='Path to database to store guids')
 
-    parser.add_argument('--idf-index', '-d',
-                        default='idf.index',
-                        help='IDF index file')
+    parser.add_argument('--tfidf-index', '-d',
+                        default='tfidf.index',
+                        help='TF-IDF index file')
 
     parser.add_argument('--temp-filename', '-t',
                         default='near_dupes',
@@ -72,13 +72,13 @@ if __name__ == '__main__':
 
     address_only = args.address_only
 
-    idf_filename = os.path.join(args.output_dir, args.idf_index)
+    tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
 
-    idf_index = None
+    tfidf_index = None
     if not address_only:
-        idf_index = IDFIndex()
+        tfidf_index = TFIDFIndex()
 
-    print('IDF index file: {}'.format(idf_filename))
+    print('TF-IDF index file: {}'.format(tfidf_filename))
 
     temp_filename = os.path.join(args.output_dir, args.temp_filename)
     map_file = open(temp_filename, 'w')
@@ -110,7 +110,9 @@ if __name__ == '__main__':
 
             if not address_only:
                 name = address.get(AddressComponents.NAME)
-                idf_index.update(Counter(name.lower().split()))
+                if not name:
+                    continue
+                tfidf_index.update(Counter(name.lower().split()))
                 hashes = VenueDeduper.near_dupe_hashes(address)
             else:
                 hashes = AddressDeduper.near_dupe_hashes(address)
@@ -121,7 +123,7 @@ if __name__ == '__main__':
     map_file.close()
 
     if not address_only:
-        idf_index.save(idf_filename)
+        tfidf_index.save(tfidf_filename)
 
     print('* Sorting temporary near-dupe file by hash')
 
@@ -154,7 +156,8 @@ if __name__ == '__main__':
                 for other_guid in candidate_dupes[1:]:
                     other_feature = json.loads(guids_db.Get(other_guid))
                     other = Address.from_geojson(other_feature)
-                    if not address_only and VenueDeduper.is_dupe(canonical, other, idf=idf_index, name_dupe_threshold=args.name_dupe_threshold):
+
+                    if not address_only and VenueDeduper.is_dupe(canonical, other, tfidf=tfidf_index, name_dupe_threshold=args.name_dupe_threshold):
                         dupe_pairs[other_guid].add(canonical_guid)
                     elif address_only and AddressDeduper.is_dupe(canonical, other):
                         dupe_pairs[other_guid].add(canonical_guid)

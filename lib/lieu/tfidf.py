@@ -1,4 +1,5 @@
 import math
+import six
 import ujson as json
 
 from collections import defaultdict
@@ -6,7 +7,7 @@ from collections import defaultdict
 from lieu.floats import isclose
 
 
-class IDFIndex(object):
+class TFIDFIndex(object):
     finalized = False
 
     def __init__(self):
@@ -54,18 +55,17 @@ class IDFIndex(object):
     def corpus_frequency(self, key):
         return self.idf_counts.get(key, 0)
 
-    def tfidf_score(self, key, count=1):
-        if count < 0:
-            return 0.0
+    @classmethod
+    def tfidf_score(cls, term_frequency, doc_frequency, total_docs):
+        return math.log(term_frequency + 1.0) * (math.log(float(total_docs) / doc_frequency))
 
-        idf_count = self.idf_counts.get(key, None)
-        if idf_count is None:
-            return 0.0
-        return (math.log(count + 1.0) * (math.log(float(self.N) / idf_count)))
+    def tfidf_vector(self, token_counts):
+        return [(w, self.tfidf_score(term_frequency=c, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N)) for w, c in token_counts.iteritems()]
 
-    def normalized_tfidf_vector(self, token_counts):
-        tf_idf = [self.tfidf_score(t, count=c) for t, c in token_counts.iteritems()]
-        norm = math.sqrt(sum((t ** 2 for t in tf_idf)))
+    @classmethod
+    def normalized_tfidf_vector(cls, tfidf_vector):
+        norm = math.sqrt(sum((s ** 2 for w, s in tfidf_vector)))
+
         if isclose(norm, 0.0):
-            return tf_idf
-        return [t / norm for t in tf_idf]
+            return tfidf_vector
+        return [(w, s / norm) for w, s in tfidf_vector]

@@ -10,7 +10,7 @@ def ordered_word_count(tokens):
     return counts
 
 
-def soft_tfidf_similarity(tokens1, tokens2, idf,
+def soft_tfidf_similarity(token_scores1, token_scores2,
                           sim_func=Levenshtein.jaro_winkler, theta=0.95,
                           common_word_threshold=100):
     '''
@@ -30,10 +30,9 @@ def soft_tfidf_similarity(tokens1, tokens2, idf,
     value to be below the threshold. Those metrics can be transformed into
     a (0, 1) measure.
 
-    @param tokens1: normalized tokens of string 1 (list of strings only)
-    @param tokens2: normalized tokens of string 2 (list of strings only)
+    @param token_scores1: normalized tokens of string 1 and their L2-normalized TF-IDF values
+    @param token_scores2: normalized tokens of string 2 and their L2-normalized TF-IDF values
 
-    @param idf: IDFIndex built from either the input data or something similar
     @param sim_func: similarity function which takes 2 strings and returns
                      a number between 0 and 1
     @param theta: token-level threshold on sim_func's return value at
@@ -43,25 +42,19 @@ def soft_tfidf_similarity(tokens1, tokens2, idf,
     https://www.cs.cmu.edu/~pradeepr/papers/ijcai03.pdf
     '''
 
-    token1_counts = ordered_word_count(tokens1)
-    token2_counts = ordered_word_count(tokens2)
-
-    tfidf1 = idf.normalized_tfidf_vector(token1_counts)
-    tfidf2 = idf.normalized_tfidf_vector(token2_counts)
-
     total_sim = 0.0
 
-    t1_len = len(token1_counts)
-    t2_len = len(token2_counts)
+    t1_len = len(token_scores1)
+    t2_len = len(token_scores2)
 
     if t2_len < t1_len:
-        token1_counts, token2_counts = token2_counts, token1_counts
-        tfidf1, tfidf2 = tfidf2, tfidf1
+        token_scores1, token_scores2 = token_scores2, token_scores1
 
-    for i, t1 in enumerate(token1_counts):
-        sim, j = max([(sim_func(t1, t2), j) for j, t2 in enumerate(token2_counts)])
+    for t1, tfidf1 in token_scores1:
+        sim, j = max([(sim_func(t1, t2), j) for j, (t2, _) in enumerate(token_scores2)])
         if sim >= theta:
-            total_sim += sim * tfidf1[i] * tfidf2[j]
+            t2, tfidf2 = token_scores2[j]
+            total_sim += sim * tfidf1 * tfidf2
 
     return total_sim
 

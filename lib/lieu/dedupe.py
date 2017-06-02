@@ -1,13 +1,11 @@
 import geohash
 import re
-
-from collections import Counter
-from itertools import product
+import six
 
 from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_UNIT, ADDRESS_LEVEL, ADDRESS_HOUSE_NUMBER
 
 from lieu.address import AddressComponents, VenueDetails, Coordinates
-from lieu.similarity import soft_tfidf_similarity, jaccard_similarity
+from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
 
 
 class AddressDeduper(object):
@@ -76,7 +74,7 @@ class AddressDeduper(object):
         geo = geohash.encode(lat, lon)[:geohash_precision]
         geohash_neighbors = [geo] + geohash.neighbors(geo)
 
-        for keys in product(geohash_neighbors, *address_expansions):
+        for keys in six.itertools.product(geohash_neighbors, *address_expansions):
             yield u'|'.join(keys)
 
 
@@ -131,17 +129,26 @@ class NameDeduper(object):
             return jaccard_similarity(tokens1, tokens2)
 
     @classmethod
-    def compare(cls, tokens1, tokens2, idf):
+    def compare_in_memory(cls, tokens1, tokens2, tfidf):
         # Test exact equality, also handles things like Cabbage Town == Cabbagetown
         if u''.join(tokens1) == u''.join(tokens2):
             return 1.0
         else:
-            return soft_tfidf_similarity(tokens1, tokens2, idf)
+            token_counts1 = ordered_word_count(tokens1)
+            token_counts2 = ordered_word_count(tokens2)
+
+            tfidf1 = tfidf.tfidf_vector(token_counts1)
+            tfidf2 = tfidf.tfidf_vector(token_counts2)
+
+            tfidf1_norm = tfidf.normalized_tfidf_vector(tfidf1)
+            tfidf2_norm = tfidf.normalized_tfidf_vector(tfidf2)
+
+            return soft_tfidf_similarity(tfidf1_norm, tfidf2_norm)
 
 
 class VenueDeduper(AddressDeduper):
     @classmethod
-    def is_dupe(cls, a1, a2, idf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold):
+    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
@@ -151,12 +158,13 @@ class VenueDeduper(AddressDeduper):
         if not same_address:
             return same_address
 
-        if idf is None:
+        if tfidf is None:
             same_name = cls.component_equals(a1_name, a2_name, ADDRESS_NAME)
         else:
             a1_name_tokens = NameDeduper.content_tokens(a1_name)
             a2_name_tokens = NameDeduper.content_tokens(a2_name)
-            sim = NameDeduper.compare(a1_name_tokens, a2_name_tokens, idf)
+
+            sim = NameDeduper.compare_in_memory(a1_name_tokens, a2_name_tokens, tfidf)
             same_name = sim >= name_dupe_threshold
 
         return same_address and same_name
