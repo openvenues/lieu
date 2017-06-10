@@ -14,7 +14,7 @@ from lieu.address import Address, AddressComponents
 from lieu.api import DedupeResponse
 from lieu.dedupe import VenueDeduper, AddressDeduper, NameDeduper
 from lieu.encoding import safe_encode, safe_decode
-from lieu.tfidf import TFIDFIndex
+from lieu.tfidf import TFIDF
 from lieu.input import GeoJSONParser, GeoJSONLineParser
 
 from postal.expand import ADDRESS_NAME
@@ -76,7 +76,7 @@ if __name__ == '__main__':
 
     tfidf_index = None
     if not address_only:
-        tfidf_index = TFIDFIndex()
+        tfidf_index = TFIDF()
 
     print('TF-IDF index file: {}'.format(tfidf_filename))
 

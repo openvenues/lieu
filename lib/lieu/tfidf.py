@@ -7,7 +7,7 @@ from collections import defaultdict
 from lieu.floats import isclose
 
 
-class TFIDFIndex(object):
+class TFIDF(object):
     finalized = False
 
     def __init__(self):
