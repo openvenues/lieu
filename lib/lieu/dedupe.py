@@ -46,8 +46,8 @@ class AddressDeduper(object):
         return True
 
     @classmethod
-    def is_dupe(cls, a1, a2):
-        return cls.is_address_dupe(a1, a2) and cls.is_sub_building_dupe(a1, a2)
+    def is_dupe(cls, a1, a2, with_unit=True):
+        return cls.is_address_dupe(a1, a2) and (not with_unit or cls.is_sub_building_dupe(a1, a2))
 
     @classmethod
     def component_expansions(cls, address):
@@ -148,7 +148,7 @@ class NameDeduper(object):
 
 class VenueDeduper(AddressDeduper):
     @classmethod
-    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold):
+    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold, with_unit=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
@@ -158,9 +158,14 @@ class VenueDeduper(AddressDeduper):
         if not same_address:
             return same_address
 
-        if tfidf is None:
-            same_name = cls.component_equals(a1_name, a2_name, ADDRESS_NAME)
-        else:
+        if with_unit:
+            same_unit = cls.is_sub_building_dupe(a1, a2)
+            if not same_unit:
+                return same_unit
+
+        same_name = cls.is_exact_name_dupe(a1_name, a2_name)
+
+        if tfidf is not None and not same_name:
             a1_name_tokens = NameDeduper.content_tokens(a1_name)
             a2_name_tokens = NameDeduper.content_tokens(a2_name)
 
@@ -168,6 +173,10 @@ class VenueDeduper(AddressDeduper):
             same_name = sim >= name_dupe_threshold
 
         return same_address and same_name
+
+    @classmethod
+    def is_exact_name_dupe(cls, name1, name2):
+        return cls.component_equals(name1, name2, ADDRESS_NAME)
 
     @classmethod
     def component_expansions(cls, address):
