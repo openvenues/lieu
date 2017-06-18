@@ -3,9 +3,11 @@
 import argparse
 import leveldb
 import os
-import shutil
 import subprocess
 import uuid
+
+from six import itertools, operator
+from six.moves import xrange
 
 import ujson as json
 from collections import Counter, defaultdict
@@ -77,6 +79,7 @@ if __name__ == '__main__':
 
     address_only = args.address_only
     with_unit = args.with_unit
+    name_dupe_threshold = args.name_dupe_threshold
 
     tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
 
@@ -104,13 +107,16 @@ if __name__ == '__main__':
     print('Output filename: {}'.format(out_path))
     print('-----------------------------')
 
-    print('* Assigning GUIDs, creating near-dupe hashes{}'.format(' + IDF index' if not address_only else ''))
+    print('* Assigning IDs, creating near-dupe hashes{}'.format(' + IDF index' if not address_only else ''))
+
+    num_features = 0
     for filename in args.files:
         f = open_geojson_file(filename)
 
-        for feature in f:
+        for i, feature in enumerate(f):
             DedupeResponse.add_random_guid(feature)
             guid = feature['properties'][DedupeResponse.guid_key]
+            DedupeResponse.add_guid(feature, guid)
             guids_db.Put(guid, json.dumps(feature))
 
             address = Address.from_geojson(feature)
@@ -126,6 +132,8 @@ if __name__ == '__main__':
 
             for h in hashes:
                 map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
+
+            num_features += 1
 
     map_file.close()
 
@@ -148,34 +156,39 @@ if __name__ == '__main__':
     dupe_pairs = defaultdict(set)
     num_comparisons = 0
 
-    for i, line in enumerate(open(sorted_temp_filename)):
-        key, value = safe_decode(line).rstrip().split(u'\t', 1)
+    kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
+                                      key=operator.itemgetter(0)))
 
-        if last_key is None or key == last_key:
-            candidate_dupes.append(value)
-        elif candidate_dupes:
-            canonical_guid = candidate_dupes[0]
+    while True:
+        try:
+            i, (key, vals) = kvs.next()
+            candidate_dupes = [v for k, v in vals]
 
-            if len(candidate_dupes) > 1:
-                canonical_feature = json.loads(guids_db.Get(canonical_guid))
-                canonical = Address.from_geojson(canonical_feature)
+            candidate_features = [(candidate_guid, json.loads(guids_db.Get(candidate_guid))) for candidate_guid in candidate_dupes]
+            num_candidate_features = len(candidate_features)
 
-                for other_guid in candidate_dupes[1:]:
-                    other_feature = json.loads(guids_db.Get(other_guid))
-                    other = Address.from_geojson(other_feature)
+            if num_candidate_features > 1:
+                for j in xrange(num_candidate_features):
+                    canonical_guid, canonical_feature = candidate_features[j]
+                    canonical = Address.from_geojson(canonical_feature)
 
-                    if not address_only and VenueDeduper.is_dupe(canonical, other, tfidf=tfidf_index, name_dupe_threshold=args.name_dupe_threshold, with_unit=with_unit):
-                        dupe_pairs[other_guid].add(canonical_guid)
-                    elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
-                        dupe_pairs[other_guid].add(canonical_guid)
+                    for k in xrange(j + 1, num_candidate_features):
+                        other_guid, other_feature = candidate_features[k]
+                        other = Address.from_geojson(other_feature)
 
-                    num_comparisons += 1
+                        if not address_only:
+                            venue_dupe = VenueDeduper.is_dupe(canonical, other, tfidf=tfidf_index,
+                                                              name_dupe_threshold=name_dupe_threshold, with_unit=with_unit)
+                            if venue_dupe:
+                                dupe_pairs[other_guid].add(canonical_guid)
+                        elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
+                            dupe_pairs[other_guid].add(canonical_guid)
 
-            candidate_dupes = [value]
+                        num_comparisons += 1
+        except StopIteration:
+            break
 
-        last_key = key
-
-    print('  did {} out of {} possible comparisons'.format(num_comparisons, i))
+    print('  did {} out of {} possible comparisons'.format(num_comparisons, (num_features * (num_features - 1)) / 2 ))
     os.unlink(sorted_temp_filename)
 
     print('* Building output file')
@@ -208,9 +221,10 @@ if __name__ == '__main__':
 
                 if is_canonical:
                     DedupeResponse.add_guid(other_value, other_guid)
-                DedupeResponse.add_same_as(response, value=other_value, classification=classification, is_canonical=is_canonical)
+                DedupeResponse.add_same_as(response, value=other_value, classification=classification, is_canonical=is_canonical, explain=explain)
 
         out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
     print('Finished. Got {} dupe records'.format(len(dupe_pairs)))
+    print('Number of canonicals = {}'.format(len(set.union(*dupe_pairs.values()))))
