@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 def main():
@@ -12,9 +12,10 @@ def main():
             'python-Levenshtein',
             'leveldb',
             'ujson',
+            'Fuzzy',
         ],
         package_dir={'': 'lib'},
-        packages=['lieu'],
+        packages=find_packages('lib'),
         scripts=['scripts/dedupe_geojson'],
         zip_safe=False,
         url='https://github.com/openvenues/lieu',
