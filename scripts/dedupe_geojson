@@ -210,7 +210,7 @@ if __name__ == '__main__':
                     other = Address.from_geojson(other_value)
                     a2_name = other.get(AddressComponents.NAME)
                     if a1_name and a2_name:
-                        exact_match = VenueDeduper.component_equals(a1_name, a2_name, ADDRESS_NAME)
+                        exact_match = VenueDeduper.component_equals(a1_name, a2_name, ADDRESS_NAME, no_whitespace=False)
 
                     explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=args.name_dupe_threshold, with_unit=with_unit)
                 else:

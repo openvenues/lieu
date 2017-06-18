@@ -10,15 +10,26 @@ from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_s
 from lieu.encoding import safe_encode
 
 double_metaphone = fuzzy.DMetaphone()
+whitespace_regex = re.compile('[\s]+')
 
 
 class AddressDeduper(object):
     DEFAULT_GEOHASH_PRECISION = 6
 
+
     @classmethod
-    def component_equals(cls, c1, c2, component):
-        return len(set(expand_address(c1, address_components=component)) &
-                   set(expand_address(c2, address_components=component))) > 0
+    def component_equals(cls, c1, c2, component, no_whitespace=True):
+        expansions1 = expand_address(c1, address_components=component)
+        expansions2 = expand_address(c2, address_components=component)
+
+        if not no_whitespace:
+            set_expansions1 = set(expansions1)
+            set_expansions2 = set(expansions2)
+        else:
+            set_expansions1 = set([whitespace_regex.sub(u'', e1) for e1 in expansions1])
+            set_expansions2 = set([whitespace_regex.sub(u'', e2) for e2 in expansions2])
+
+        return len(set_expansions1 & set_expansions2) > 0
 
     @classmethod
     def is_address_dupe(cls, a1, a2):
@@ -135,19 +146,16 @@ class NameDeduper(object):
     @classmethod
     def compare_in_memory(cls, tokens1, tokens2, tfidf):
         # Test exact equality, also handles things like Cabbage Town == Cabbagetown
-        if u''.join(tokens1) == u''.join(tokens2):
-            return 1.0
-        else:
-            token_counts1 = ordered_word_count(tokens1)
-            token_counts2 = ordered_word_count(tokens2)
+        token_counts1 = ordered_word_count(tokens1)
+        token_counts2 = ordered_word_count(tokens2)
 
-            tfidf1 = tfidf.tfidf_vector(token_counts1)
-            tfidf2 = tfidf.tfidf_vector(token_counts2)
+        tfidf1 = tfidf.tfidf_vector(token_counts1)
+        tfidf2 = tfidf.tfidf_vector(token_counts2)
 
-            tfidf1_norm = tfidf.normalized_tfidf_vector(tfidf1)
-            tfidf2_norm = tfidf.normalized_tfidf_vector(tfidf2)
+        tfidf1_norm = tfidf.normalized_tfidf_vector(tfidf1)
+        tfidf2_norm = tfidf.normalized_tfidf_vector(tfidf2)
 
-            return soft_tfidf_similarity(tfidf1_norm, tfidf2_norm)
+        return soft_tfidf_similarity(tfidf1_norm, tfidf2_norm)
 
 
 class VenueDeduper(AddressDeduper):
