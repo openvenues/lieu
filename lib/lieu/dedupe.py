@@ -1,3 +1,4 @@
+import fuzzy
 import geohash
 import re
 import six
@@ -6,6 +7,9 @@ from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_
 
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
+from lieu.encoding import safe_encode
+
+double_metaphone = fuzzy.DMetaphone()
 
 
 class AddressDeduper(object):
@@ -179,6 +183,21 @@ class VenueDeduper(AddressDeduper):
         return cls.component_equals(name1, name2, ADDRESS_NAME)
 
     @classmethod
+    def name_word_hashes(cls, name):
+        name_expanded_words = set()
+
+        for n in expand_address(name, address_components=ADDRESS_NAME):
+            tokens = NameDeduper.tokenize(n)
+            for t in tokens:
+                dm = set([e for e in double_metaphone(safe_encode(t)) if e is not None])
+                if dm:
+                    name_expanded_words |= dm
+                else:
+                    name_expanded_words.add(t)
+
+        return name_expanded_words
+
+    @classmethod
     def component_expansions(cls, address):
         name = address.get(AddressComponents.NAME)
 
@@ -189,5 +208,6 @@ class VenueDeduper(AddressDeduper):
         if not expansions:
             return ()
 
-        name_expanded_words = set.union(*[set(NameDeduper.tokenize(n)) for n in expand_address(name, address_components=ADDRESS_NAME)])
+        name_expanded_words = cls.name_word_hashes(name)
+
         return (list(name_expanded_words),) + expansions
