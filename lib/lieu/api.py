@@ -67,3 +67,14 @@ class DedupeResponse(object):
         response['same_as'].append(same_as)
 
         return response
+
+    @classmethod
+    def create(cls, value, is_dupe=False, add_random_guid=False, same_as=[], explain=None):
+        response = cls.base_response(value, is_dupe=is_dupe)
+        if add_random_guid:
+            cls.add_random_guid(value)
+        for other, classification, is_canonical in same_as:
+            cls.add_same_as(response, other, classification, is_canonical, explain=explain)
+            if add_random_guid:
+                cls.add_random_guid(other)
+        return response
