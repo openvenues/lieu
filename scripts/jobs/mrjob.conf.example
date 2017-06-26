@@ -1,0 +1,53 @@
+runners:
+    inline:
+        base_tmp_dir: /data/tmp
+    local:
+        base_tmp_dir: /data/tmp
+    emr:
+        # 1. REQUIRED: do one of the following
+        #    a) add your AWS key and secret below
+        #    b) use env variables AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+        aws_access_key_id:
+        aws_secret_access_key:
+
+        # 2. Specify Instance types
+        master_instance_type: r3.xlarge
+        instance_type: r3.2xlarge
+        image_version: 5.6.0
+
+        # 3. Specify number of core instances (workers)
+        num_core_instances: 4
+
+        # (optional) specify region
+        region: us-east-1
+
+        # (optional) specify a bid price if you want to use spot instances or delete line
+        #core_instance_bid_price: '0.42'
+
+        # (optional) Set temp dir to your bucket and path (otherwise mrjob will create a random bucket)
+        cloud_tmp_dir:
+
+        cmdenv:
+            LD_LIBRARY_PATH: /usr/local/lib
+
+        bootstrap:
+            # (optional): install any extra packages via yum
+            - sudo yum install -y git curl autoconf automake libtool pkgconfig python-devel python-pip gcc
+
+            # Install libpostal
+            - sudo mkdir -p /opt/src
+            - sudo mkdir -p /data
+            - USER=`whoami`
+            - GROUP=`groups | sed -r 's/ .*//g'`
+            - sudo chown -R $USER:$GROUP /opt/src /data
+            - cd /opt/src
+            - git clone https://github.com/openvenues/libpostal
+            - cd libpostal
+            - ./bootstrap.sh
+            - ./configure --datadir=/data
+            - make
+            - sudo make install
+            - sudo ldconfig
+
+            # (optional): install any Python packages beyond what gets installed with setup.py
+            - sudo pip install git+https://github.com/openvenues/lieu.git
