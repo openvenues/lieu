@@ -51,7 +51,10 @@ class DedupeVenuesJob(MRJob):
 
         address_ids = geojson_ids.map(lambda (geojson, uid): (Address.from_geojson(geojson), uid))
 
-        dupes_with_classes = VenueDeduperSpark.dupes(address_ids)
+        if not self.options.address_only:
+            dupes_with_classes = VenueDeduperSpark.dupes(address_ids)
+        else:
+            dupes_with_classes = AddressDeduperSpark.dupes(address_ids)
 
         dupes_of = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid1, (uid2, classification))) \
                                      .distinct()
