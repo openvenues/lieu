@@ -27,13 +27,13 @@ At present, all venues are required to have the following properties:
 - **street**: street name, reasonable in most countries but that assumption may need to be relaxed for e.g. Japan (where "suburb" would be the closest thing to street)
 - **house_number**: needs to be parsed out into its own field. If not, feel free to use libpostal's parser to extract a house number from the street field.
 
-Each record must also have a valid lat/lon (i.e. not Null Island) although entries within ~2-3km of each other can still be considered dupes if their names and addresses match. This should allow for even coordinates with relatively 
+Each record must also have a valid lat/lon (i.e. not Null Island) although it's only used in blocking (grouping similar items to narrow down the number of pairwise checks), so candidate pairs within ~2-3km of each other can still be considered dupes if their names and addresses match. This should work reasonably well for real-world place data where the locations may have been recorded with varying devices and degrees of precision.
 
 ## Exact dupes vs. likely dupes
 
 Addresses are not an exact science, so even the term "exact" here means "sharing at least one libpostal expansion in common". As such, "Market Street" and "Market St" would be considered exact matches, as would "Third Avenue" and "3rd Ave", etc.
 
-For street name/house number, we require this sort of exact match, but more freedom is allowed in the venue/business name. A likely dupe may have some minor misspellings, may be missing common words like "Inc" or "Restaurant", and may use different word orders (common with professionsals e.g. "Obama, Barack" instead of "Barack Obama").
+For street name/house number, we require this sort of exact match, but more freedom is allowed in the venue/business name. A likely dupe may have some minor misspellings, may be missing common words like "Inc" or "Restaurant", and may use different word orders (often the case for professionals such as lawyers e.g. "Michelle Obama" might be written "Obama, Michelle").
 
 ## Examples of likely dupes
 
