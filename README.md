@@ -18,9 +18,9 @@ dedupe_geojson file1.geojson [file2.geojson ...] -o /some/output/dir [--address-
 
 ## Running on Spark/ElasticMapReduce
 
-It's also possible to dedupe larger/global data sets using Spark and AWS ElasticMapReduce (EMR). Using Spark/EMR should look and feel pretty similar to the command-line script. However, behind the scenes it spins up a cluster of machines, runs a job in parallel, writes the results to S3, shuts down the cluster, and optionally cats all the results to stdout. There's no need to worry about provisioning the machines or maintaining a standing cluster, and only a small amount of configuration is required.
+It's also possible to dedupe larger/global data sets using Apache Spark and AWS ElasticMapReduce (EMR). Using Spark/EMR should look and feel pretty similar to the command-line script (thanks in large part to the [mrjob](https://github.com/Yelp/MRJob) project from David Marin from Yelp). However, instead of running on your local machine, it spins up a cluster, runs the Spark job, writes the results to S3, shuts down the cluster, and optionally downloads/prints all the results to stdout. There's no need to worry about provisioning the machines or maintaining a standing cluster, and it require minimal configuration.
 
-You'll need to create an [Amazon Web Services](https://aws.amazon.com) account and an IAM role that has [the permissions required for ElasticMapReduce](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-iam-roles.html). Once that's set up, there are a few short configuration steps:
+If you don't have one, you'll need to create an [Amazon Web Services](https://aws.amazon.com) account and an IAM role that has [the permissions required for ElasticMapReduce](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-iam-roles.html). Once that's set up, we need to configure the job to use your account:
 
 ```shell
 cd scripts/jobs
