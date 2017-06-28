@@ -8,35 +8,6 @@ This is a prototype, and various aspects, particularly the locally-sensitive has
 
 Note: libpostal and its Python binding are required to use this library, setup instructions [here](https://github.com/openvenues/pypostal).
 
-## Running locally with the command-line tool
-
-The ```dedupe_geojson``` command-line tool will be installed in the environment's bin dir and can be used like so:
-
-```
-dedupe_geojson file1.geojson [file2.geojson ...] -o /some/output/dir [--address-only]
-```
-
-## Running on Spark/ElasticMapReduce
-
-It's also possible to dedupe larger/global data sets using Apache Spark and AWS ElasticMapReduce (EMR). Using Spark/EMR should look and feel pretty similar to the command-line script (thanks in large part to the [mrjob](https://github.com/Yelp/MRJob) project from David Marin from Yelp). However, instead of running on your local machine, it spins up a cluster, runs the Spark job, writes the results to S3, shuts down the cluster, and optionally downloads/prints all the results to stdout. There's no need to worry about provisioning the machines or maintaining a standing cluster, and it require minimal configuration.
-
-If you don't have one, you'll need to create an [Amazon Web Services](https://aws.amazon.com) account and an IAM role that has [the permissions required for ElasticMapReduce](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-iam-roles.html). Once that's set up, we need to configure the job to use your account:
-
-```shell
-cd scripts/jobs
-cp mrjob.conf.example mrjob.conf
-```
-
-Open up mrjob.conf in your favorite text editor. The config is a YAML file and under ```runners.emr``` there are comments describing the few required fields (e.g. access key and secret, instance types, number of instances, etc.) and some optional ones.
-
-Data should be on S3 as line-delimited GeoJSON (no FeatureCollection wrapper) in a bucket that your IAM user can access. From there, the command is simply:
-
-```shell
-python dedupe_geojson.py -r emr s3://YOURBUCKET/some/file [more S3 files ...] --output-dir=s3://YOURBUCKET/path/to/output/ --no-output --conf-path=mrjob.conf
-```
-
-If you want the output streamed back to stdout on the machine running the job (e.g. your local machine), remove the ```--no-output``` option.
-
 ## Input formats
 Inputs are expected to be GeoJSON files. The command-line client works on both FeatureCollection and line-delimited GeoJSON, but for Spark/EMR the input must be line-delimited GeoJSON so it can be effectively split across machines.
 
@@ -49,6 +20,35 @@ At present, all venues are required to have the following properties:
 - **house_number**: needs to be parsed out into its own field. If not, feel free to use libpostal's parser to extract a house number from the street field.
 
 Each record must also have a valid lat/lon (i.e. not Null Island) although it's only used in blocking (grouping similar items to narrow down the number of pairwise checks), so candidate pairs within ~2-3km of each other can still be considered dupes if their names and addresses match. This should work reasonably well for real-world place data where the locations may have been recorded with varying devices and degrees of precision.
+
+## Running locally with the command-line tool
+
+The ```dedupe_geojson``` command-line tool will be installed in the environment's bin dir and can be used like so:
+
+```
+dedupe_geojson file1.geojson [file2.geojson ...] -o /some/output/dir [--address-only]
+```
+
+## Running on Spark/ElasticMapReduce
+
+It's also possible to dedupe larger/global data sets using Apache Spark and AWS ElasticMapReduce (EMR). Using Spark/EMR should look and feel pretty similar to the command-line script (thanks in large part to the [mrjob](https://github.com/Yelp/MRJob) project from David Marin from Yelp). However, instead of running on your local machine, it spins up a cluster, runs the Spark job, writes the results to S3, shuts down the cluster, and optionally downloads/prints all the results to stdout. There's no need to worry about provisioning the machines or maintaining a standing cluster, and it requires only minimal configuration.
+
+To get started, you'll need to create an [Amazon Web Services](https://aws.amazon.com) account and an IAM role that has [the permissions required for ElasticMapReduce](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-iam-roles.html). Once that's set up, we need to configure the job to use your account:
+
+```shell
+cd scripts/jobs
+cp mrjob.conf.example mrjob.conf
+```
+
+Open up mrjob.conf in your favorite text editor. The config is a YAML file and under ```runners.emr``` there are comments describing the few required fields (e.g. access key and secret, instance types, number of instances, etc.) and some optional ones (AWS region, spot instance bid price, etc.)
+
+Data should be on S3 as line-delimited GeoJSON files (i.e. not part of a FeatureCollection, just one GeoJSON feature per line) in a bucket that your IAM user can access. From there, the usage is simple:
+
+```shell
+python dedupe_geojson.py -r emr s3://YOURBUCKET/some/file [more S3 files ...] --output-dir=s3://YOURBUCKET/path/to/output/ --no-output --conf-path=mrjob.conf
+```
+
+Note: if you want the output streamed back to stdout on the machine running the job (e.g. your local machine), remove the ```--no-output``` option.
 
 ## Exact dupes vs. likely dupes
 
