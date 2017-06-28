@@ -13,6 +13,7 @@ def main():
             'leveldb',
             'ujson',
             'Fuzzy',
+            'mrjob',
         ],
         package_dir={'': 'lib'},
         packages=find_packages('lib'),
