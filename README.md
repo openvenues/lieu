@@ -8,7 +8,7 @@ This is a prototype, and various aspects, particularly the locally-sensitive has
 
 Note: libpostal and its Python binding are required to use this library, setup instructions [here](https://github.com/openvenues/pypostal).
 
-## Command-line tool
+## Running locally with the command-line tool
 
 The ```dedupe_geojson``` command-line tool will be installed in the environment's bin dir and can be used like so:
 
@@ -16,8 +16,29 @@ The ```dedupe_geojson``` command-line tool will be installed in the environment'
 dedupe_geojson file1.geojson [file2.geojson ...] -o /some/output/dir [--address-only]
 ```
 
+## Running on Spark/ElasticMapReduce
+
+It's also possible to dedupe larger/global data sets using Spark and AWS ElasticMapReduce (EMR). Using Spark/EMR should look and feel pretty similar to the command-line script. However, behind the scenes it spins up a cluster of machines, runs a job in parallel, writes the results to S3, shuts down the cluster, and optionally cats all the results to stdout. There's no need to worry about provisioning the machines or maintaining a standing cluster, and only a small amount of configuration is required.
+
+You'll need to create an [Amazon Web Services](https://aws.amazon.com) account and an IAM role that has [the permissions required for ElasticMapReduce](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-iam-roles.html). Once that's set up, there are a few short configuration steps:
+
+```shell
+cd scripts/jobs
+cp mrjob.conf.example mrjob.conf
+```
+
+Open up mrjob.conf in your favorite text editor. The config is a YAML file and under ```runners.emr``` there are comments describing the few required fields (e.g. access key and secret, instance types, number of instances, etc.) and some optional ones.
+
+Data should be on S3 as line-delimited GeoJSON (no FeatureCollection wrapper) in a bucket that your IAM user can access. From there, the command is simply:
+
+```shell
+python dedupe_geojson.py -r emr s3://YOURBUCKET/some/file [more S3 files ...] --output-dir=s3://YOURBUCKET/path/to/output/ --no-output --conf-path=mrjob.conf
+```
+
+If you want the output streamed back to stdout on the machine running the job (e.g. your local machine), remove the ```--no-output``` option.
+
 ## Input formats
-Inputs are expected to be GeoJSON files. The command-line client works on both FeatureCollection and line-delimited GeoJSON, but for compatibility with the upcoming MapReduce version it's better to use line-delimited GeoJSON.
+Inputs are expected to be GeoJSON files. The command-line client works on both FeatureCollection and line-delimited GeoJSON, but for Spark/EMR the input must be line-delimited GeoJSON so it can be effectively split across machines.
 
 WoF and OSM field names are supported in this project (again: it's a prototype and may change) and are mapped to libpostal's schema.
 
