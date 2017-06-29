@@ -8,6 +8,7 @@ from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
 from lieu.encoding import safe_encode
+from lieu.floats import isclose
 
 double_metaphone = fuzzy.DMetaphone()
 whitespace_regex = re.compile('[\s]+')
@@ -83,7 +84,7 @@ class AddressDeduper(object):
 
         lat = address.get(Coordinates.LATITUDE)
         lon = address.get(Coordinates.LONGITUDE)
-        if lat is None or lon is None or lat >= 90.0 or lat <= -90.0 or not any(address_expansions):
+        if lat is None or lon is None or (isclose(lat, 0.0) and isclose(lon, 0.0)) or lat >= 90.0 or lat <= -90.0 or not any(address_expansions):
             return
 
         geo = geohash.encode(lat, lon)[:geohash_precision]
