@@ -42,13 +42,97 @@ cp mrjob.conf.example mrjob.conf
 
 Open up mrjob.conf in your favorite text editor. The config is a YAML file and under ```runners.emr``` there are comments describing the few required fields (e.g. access key and secret, instance types, number of instances, etc.) and some optional ones (AWS region, spot instance bid price, etc.)
 
-Data should be on S3 as line-delimited GeoJSON files (i.e. not part of a FeatureCollection, just one GeoJSON feature per line) in a bucket that your IAM user can access. From there, the usage is simple:
+### Spark configuration
+
+The example config includes a sample of the configuration used for deduping the global SimpleGeo data set (with the number of instances scaled back). The full run used 18 r3.2xlarge machines (num_core_instances=18), an r3.xlarge for the master instance, and the following values for the jobconf section of the config:
+
+| jobconf option           | value |
+|--------------------------|-------|
+| spark.driver.memory      | 16g   |
+| spark.driver.cores       | 3     |
+| spark.executor.instances | 36    |
+| spark.executor.cores     | 4     |
+| spark.executor.memory    | 30g   |
+| spark.network.timeout    | 900s  |
+
+These values should be adjusted depending on the number and type of core instances.
+
+### Data format for Spark
+
+Data should be on S3 as line-delimited GeoJSON files (i.e. not part of a FeatureCollection, just one GeoJSON feature per line) in a bucket that your IAM user can access.
+
+### Running the Spark job
+
+Once the config values are set and the data are on S3, usage is simple:
 
 ```shell
 python dedupe_geojson.py -r emr s3://YOURBUCKET/some/file [more S3 files ...] --output-dir=s3://YOURBUCKET/path/to/output/ --no-output --conf-path=mrjob.conf
 ```
 
 Note: if you want the output streamed back to stdout on the machine running the job (e.g. your local machine), remove the ```--no-output``` option.
+
+## Output format
+
+The output is a per-line JSON response which wraps the original GeoJSON object and references any duplicates. Note that here the original WoF GeoJSON properties have been simplified for readability, indentation has been added, and the addresses from SimpleGeo were parsed with libpostal as a preprocessing step to get the addr:housenumber and addr:street fields (which are not part of the original data set). Here's an example of a duplicate:
+
+```json
+{
+    "is_dupe": true,
+    "object": {
+        "geometry": {
+            "coordinates": [
+                -87.624148,
+                41.891601
+            ],
+            "type": "Point"
+        },
+        "id": 756188375,
+        "properties": {
+            "addr:full": "520 N. Michigan Ave. Chicago IL 60611",
+            "addr:housenumber": "520",
+            "addr:postcode": "60611",
+            "addr:street": "N. Michigan Ave.",
+            "lieu:guid": "3fc557ce7bf643fea2bb243aeaaac53a",
+            "name": "Nordstrom Spa",
+        },
+        "type": "Feature"
+    },
+    "same_as": [
+        {
+            "classification": "likely_dupe",
+            "explain": {
+                "type": "address",
+                "with_unit": false
+            },
+            "is_canonical": true,
+            "object": {
+                "geometry": {
+                    "coordinates": [
+                        -87.624208,
+                        41.891767
+                    ],
+                    "type": "Point"
+                },
+                "properties": {
+                    "addr:full": "The Shops at North Bridge 520 N Michigan Ave Chicago IL 60611",
+                    "addr:housenumber": "520",
+                    "addr:postcode": "60611",
+                    "addr:street": "N Michigan Ave",
+                    "lieu:guid": "255ca3f2467f42958b7979c2077736d5",
+                    "name": "Spa Nordstrom",
+                },
+                "type": "Feature"
+            }
+        }
+    ]
+}
+```
+
+Note: the property "lieu:guid" is added by the deduping job and should be retained for users who want to keep a canonical index and dedupe files against it regularly. If an incoming record already has a lieu:guid property, it has a higher priority for being considered canonical than an incoming record without said property. This way it's possible to ingest different data sets using a "cleanest-first" policy, so that the more trusted names (i.e. from a human-edited data set like OpenStreetMap) are ingested first and preferred over less-clean data sets where perhaps only the ID needs to be added to the combined record.
+
+### Output on Spark
+
+In Spark, the output will be split across some number of part-* files on S3 in the directory specified. They can be downloaded and concatenated as needed.
 
 ## Exact dupes vs. likely dupes
 
