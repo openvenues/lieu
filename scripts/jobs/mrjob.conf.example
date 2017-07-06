@@ -18,6 +18,20 @@ runners:
         # 3. Specify number of core instances (workers)
         num_core_instances: 4
 
+        # 4. specify any Spark jobconf options
+        jobconf:
+            # 4a. varies according to the selection of master_instance_type above
+            spark.driver.memory: 16g
+            spark.driver.cores: 3
+
+            # 4b. varies according to the selection of instance_type and num_core_instances above
+            spark.executor.instances: 8 # num_core_instances * 2
+            spark.executor.cores: 4 # num cores on instance type / 2
+            spark.executor.memory: 30g # (memory on instance type - 1GB) / executors per instance
+
+            # (optional) this is a reasonable default to prevent timeouts on large data sets
+            spark.network.timeolut: 900s
+
         # (optional) specify region
         region: us-east-1
 
