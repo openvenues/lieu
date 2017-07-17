@@ -15,8 +15,7 @@ whitespace_regex = re.compile('[\s]+')
 
 
 class AddressDeduper(object):
-    DEFAULT_GEOHASH_PRECISION = 6
-
+    DEFAULT_GEOHASH_PRECISION = 7
 
     @classmethod
     def component_equals(cls, c1, c2, component, no_whitespace=True):
@@ -160,6 +159,8 @@ class NameDeduper(object):
 
 
 class VenueDeduper(AddressDeduper):
+    DEFAULT_GEOHASH_PRECISION = 6
+
     @classmethod
     def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold, with_unit=False):
         a1_name = a1.get(AddressComponents.NAME)
