@@ -61,7 +61,8 @@ class DedupeVenuesJob(MRJob):
 
         canonicals = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid2, (uid1, classification))) \
                                        .subtractByKey(dupes_of) \
-                                       .map(lambda (uid2, (uid1, classification)): (uid2, True))
+                                       .map(lambda (uid2, (uid1, classification)): (uid2, True)) \
+                                       .distinct()
 
         dupes_with_canonical = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid2, (uid1, classification))) \
                                                  .leftOuterJoin(canonicals) \
