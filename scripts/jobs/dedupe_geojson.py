@@ -46,7 +46,7 @@ class DedupeVenuesJob(MRJob):
         lines = sc.textFile(input_path)
 
         geojson_lines = lines.map(lambda line: json.loads(line.rstrip()))
-        geojson_ids = geojson_lines.zipWithUniqueId()
+        geojson_ids = geojson_lines.cache().zipWithIndex()
         id_geojson = geojson_ids.map(lambda (geojson, uid): (uid, geojson))
 
         address_ids = geojson_ids.map(lambda (geojson, uid): (Address.from_geojson(geojson), uid))
