@@ -66,7 +66,7 @@ class DedupeVenuesJob(MRJob):
 
         dupes_with_canonical = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid2, (uid1, classification))) \
                                                  .leftOuterJoin(canonicals) \
-                                                 .map(lambda (uid2, ((uid1, classification), is_canonical)): ((uid1, uid2), (classification, is_canonical)))
+                                                 .map(lambda (uid2, ((uid1, classification), is_canonical)): ((uid1, uid2), (classification, is_canonical or False)))
 
         if not self.options.address_only:
             explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=self.options.name_dupe_threshold, with_unit=self.options.with_unit)
