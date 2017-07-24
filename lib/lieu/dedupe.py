@@ -19,6 +19,9 @@ class AddressDeduper(object):
 
     @classmethod
     def component_equals(cls, c1, c2, component, no_whitespace=True):
+        if no_whitespace and whitespace_regex.sub(u'', c1.lower()) == whitespace_regex.sub(u'', c2.lower()):
+            return True
+
         expansions1 = expand_address(c1, address_components=component)
         expansions2 = expand_address(c2, address_components=component)
 
