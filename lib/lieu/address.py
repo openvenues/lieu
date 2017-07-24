@@ -1,5 +1,5 @@
 import six
-
+from lieu.coordinates import latlon_to_decimal
 
 class AddressComponents:
     NAME = 'house'
@@ -55,6 +55,8 @@ class Address(object):
         properties = data.get('properties')
         fields = {cls.field_map[k]: v for k, v in six.iteritems(properties) if k in cls.field_map}
         lon, lat = data.get('geometry', {}).get('coordinates', (None, None))
+        lat, lon = latlon_to_decimal(lat, lon)
+
         if lat is not None:
             fields[Coordinates.LATITUDE] = lat
         if lon is not None:
