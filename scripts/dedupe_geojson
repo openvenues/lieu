@@ -67,8 +67,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--name-dupe-threshold', '-n',
                         type=float,
-                        default=NameDeduper.default_dupe_threshold,
-                        help='Threshold between 0 and 1 for name deduping with Soft-TFIDF')
+                        default=DedupeResponse.default_name_dupe_threshold,
+                        help='Likely-dupe threshold between 0 and 1 for name deduping with Soft-TFIDF')
+
+    parser.add_argument('--name-review-threshold', '-r',
+                        type=float,
+                        default=DedupeResponse.default_name_review_threshold,
+                        help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
     parser.add_argument('--with-unit',
                         action='store_true',
@@ -80,6 +85,7 @@ if __name__ == '__main__':
     address_only = args.address_only
     with_unit = args.with_unit
     name_dupe_threshold = args.name_dupe_threshold
+    name_review_threshold = args.name_review_threshold
 
     tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
 
@@ -154,6 +160,7 @@ if __name__ == '__main__':
     print('* Checking blocks of near-dupe candidates pairwise for dupes')
 
     dupe_pairs = defaultdict(set)
+    dupes = set()
     num_comparisons = 0
 
     kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
@@ -177,12 +184,19 @@ if __name__ == '__main__':
                         other = Address.from_geojson(other_feature)
 
                         if not address_only:
-                            venue_dupe = VenueDeduper.is_dupe(canonical, other, tfidf=tfidf_index,
-                                                              name_dupe_threshold=name_dupe_threshold, with_unit=with_unit)
-                            if venue_dupe:
-                                dupe_pairs[other_guid].add(canonical_guid)
+                            dupe_class, sim = VenueDeduper.dupe_class_and_sim(canonical, other, tfidf=tfidf_index,
+                                                                              name_dupe_threshold=name_dupe_threshold,
+                                                                              name_review_threshold=name_review_threshold,
+                                                                              with_unit=with_unit)
+
+                            if dupe_class is not None:
+                                dupe_pairs[other_guid].add((canonical_guid, dupe_class, sim))
+
+                                if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
+                                    dupes.add(other_guid)
                         elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
-                            dupe_pairs[other_guid].add(canonical_guid)
+                            dupe_pairs[other_guid].add((canonical_guid, DedupeResponse.classifications.EXACT_DUPE, 1.0))
+                            dupes.add(other_guid)
 
                         num_comparisons += 1
         except StopIteration:
@@ -195,33 +209,30 @@ if __name__ == '__main__':
 
     for guid, value in guids_db.RangeIter():
         value = json.loads(value)
-        is_dupe = guid in dupe_pairs
+        is_dupe = guid in dupes
         if not is_dupe:
             DedupeResponse.add_guid(value, guid)
         response = DedupeResponse.base_response(value, is_dupe)
 
         if is_dupe:
-            for other_guid in dupe_pairs[guid]:
+            for other_guid, classification, sim in dupe_pairs[guid]:
                 other_value = json.loads(guids_db.Get(other_guid))
-                exact_match = True
+
                 if not address_only:
                     canonical = Address.from_geojson(value)
-                    a1_name = canonical.get(AddressComponents.NAME)
                     other = Address.from_geojson(other_value)
-                    a2_name = other.get(AddressComponents.NAME)
-                    if a1_name and a2_name:
-                        exact_match = VenueDeduper.component_equals(a1_name, a2_name, ADDRESS_NAME, no_whitespace=False)
 
-                    explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=args.name_dupe_threshold, with_unit=with_unit)
+                    explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=name_dupe_threshold, 
+                                                                name_review_threshold=name_review_threshold,
+                                                                with_unit=with_unit)
                 else:
                     explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)
 
                 is_canonical = other_guid not in dupe_pairs
-                classification = EXACT_DUPE if exact_match else LIKELY_DUPE
 
                 if is_canonical:
                     DedupeResponse.add_guid(other_value, other_guid)
-                DedupeResponse.add_same_as(response, value=other_value, classification=classification, is_canonical=is_canonical, explain=explain)
+                DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
 
         out_file.write(json.dumps(response) + '\n')
 
