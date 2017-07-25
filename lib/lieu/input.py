@@ -1,5 +1,5 @@
 import ujson as json
-
+import bz2
 
 class GeoJSONParser(object):
     def __init__(self, filename):
@@ -26,7 +26,10 @@ class GeoJSONParser(object):
 
 class GeoJSONLineParser(GeoJSONParser):
     def __init__(self, filename):
-        self.f = open(filename)
+        if filename.endswith(".bz2"):
+            self.f = bz2.BZ2File(filename)
+        else:
+            self.f = open(filename)
 
     def next_feature(self):
         return json.loads(self.f.next().rstrip())
