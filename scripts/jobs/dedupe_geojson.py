@@ -23,14 +23,14 @@ class DedupeVenuesJob(MRJob):
         self.add_passthrough_option(
             '--name-dupe-threshold',
             type=float,
-            default=NameDeduper.default_dupe_threshold,
-            help='Threshold between 0 and 1 for name deduping with Soft-TFIDF')
+            default=DedupeResponse.default_name_dupe_threshold,
+            help='Likely-dupe threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
         self.add_passthrough_option(
-            '--geo-name-dupe-threshold',
+            '--name-review-threshold',
             type=float,
-            default=NameDeduper.default_dupe_threshold,
-            help='Threshold between 0 and 1 for geo name deduping with Soft-TFIDF')
+            default=DedupeResponse.default_name_review_threshold,
+            help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
         self.add_passthrough_option(
             '--with-unit',
@@ -52,35 +52,42 @@ class DedupeVenuesJob(MRJob):
         address_ids = geojson_ids.map(lambda (geojson, uid): (Address.from_geojson(geojson), uid))
 
         if not self.options.address_only:
-            dupes_with_classes = VenueDeduperSpark.dupes(address_ids)
+            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids)
         else:
-            dupes_with_classes = AddressDeduperSpark.dupes(address_ids)
+            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids)
 
-        dupes_of = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid1, (uid2, classification))) \
-                                     .distinct()
+        dupes = dupes_with_classes_and_sims.filter(lambda ((uid1, uid2), (classification, sim)): classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)) \
+                                           .map(lambda ((uid1, uid2), (classification, sim)): (uid1, True)) \
+                                           .distinct()
 
-        canonicals = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid2, (uid1, classification))) \
-                                       .subtractByKey(dupes_of) \
-                                       .map(lambda (uid2, (uid1, classification)): (uid2, True)) \
-                                       .distinct()
+        possible_dupe_pairs = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid1, (uid2, classification, sim))) \
+                                                         .distinct()
 
-        dupes_with_canonical = dupes_with_classes.map(lambda ((uid1, uid2), classification): (uid2, (uid1, classification))) \
-                                                 .leftOuterJoin(canonicals) \
-                                                 .map(lambda (uid2, ((uid1, classification), is_canonical)): ((uid1, uid2), (classification, is_canonical or False)))
+        canonicals = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid2, (uid1, classification, sim))) \
+                                                .subtractByKey(dupes) \
+                                                .map(lambda (uid2, (uid1, classification, sim)): (uid2, True)) \
+                                                .distinct()
+
+        dupes_with_canonical = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid2, (uid1, classification, sim))) \
+                                                          .leftOuterJoin(canonicals) \
+                                                          .map(lambda (uid2, ((uid1, classification, sim), is_canonical)): ((uid1, uid2), (classification, is_canonical or False, sim)))
 
         if not self.options.address_only:
-            explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=self.options.name_dupe_threshold, with_unit=self.options.with_unit)
+            explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=self.options.name_dupe_threshold,
+                                                        name_review_threshold=self.options.name_review_threshold,
+                                                        with_unit=self.options.with_unit)
         else:
             explain = DedupeResponse.explain_address_dupe(with_unit=self.options.with_unit)
 
-        dupe_responses = dupes_with_canonical.map(lambda ((uid1, uid2), (classification, is_canonical)): ((uid2, (uid1, classification, is_canonical)))) \
+        dupe_responses = dupes_with_canonical.map(lambda ((uid1, uid2), (classification, is_canonical, sim)): ((uid2, (uid1, classification, is_canonical, sim)))) \
                                              .join(id_geojson) \
-                                             .map(lambda (uid2, ((uid1, classification, canonical), val2)): (uid1, (val2, classification, canonical))) \
+                                             .map(lambda (uid2, ((uid1, classification, is_canonical, sim), val2)): (uid1, (val2, classification, is_canonical, sim))) \
                                              .groupByKey() \
+                                             .leftOuterJoin(dupes) \
                                              .join(id_geojson) \
-                                             .map(lambda (uid1, (same_as, value)): (uid1, DedupeResponse.create(value, is_dupe=True, add_random_guid=True, same_as=same_as, explain=explain)))
+                                             .map(lambda (uid1, ((same_as, is_dupe), value)): (uid1, DedupeResponse.create(value, is_dupe=is_dupe or False, add_random_guid=True, same_as=same_as, explain=explain)))
 
-        non_dupe_responses = id_geojson.subtractByKey(dupes_of) \
+        non_dupe_responses = id_geojson.subtractByKey(possible_dupe_pairs) \
                                        .map(lambda (uid, value): (uid, DedupeResponse.base_response(value, is_dupe=False)))
 
         all_responses = non_dupe_responses.union(dupe_responses) \
