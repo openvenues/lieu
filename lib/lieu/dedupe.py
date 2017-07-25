@@ -6,6 +6,7 @@ import six
 from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_UNIT, ADDRESS_LEVEL, ADDRESS_HOUSE_NUMBER
 
 from lieu.address import AddressComponents, VenueDetails, Coordinates
+from lieu.api import DedupeResponse
 from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
 from lieu.encoding import safe_encode
 from lieu.floats import isclose
@@ -108,20 +109,7 @@ class NameDeduper(object):
     See class attributes for options.
     '''
 
-    '''Set of words which should not be considered in similarity'''
-    stopwords = set()
-
-    '''Set of words which break similarity e.g. North, Heights'''
-    discriminative_words = set()
-
-    '''Dictionary of lowercased token replacements e.g. {u'saint': u'st'}'''
-    replacements = {}
-
-    '''Similarity threshold above which entities are considered dupes'''
-    default_dupe_threshold = 0.9
-
-    '''Whether to ignore parenthetical phrases e.g. "Kangaroo Point (NSW)"'''
-    ignore_parentheticals = False
+    ignore_parentheticals = True
 
     @classmethod
     def tokenize(cls, s):
@@ -165,31 +153,45 @@ class VenueDeduper(AddressDeduper):
     DEFAULT_GEOHASH_PRECISION = 6
 
     @classmethod
-    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=NameDeduper.default_dupe_threshold, with_unit=False):
+    def name_similarity(cls, a1_name, a2_name, tfidf):
+        a1_name_tokens = NameDeduper.content_tokens(a1_name)
+        a2_name_tokens = NameDeduper.content_tokens(a2_name)
+
+        return NameDeduper.compare_in_memory(a1_name_tokens, a2_name_tokens, tfidf)
+
+    @classmethod
+    def dupe_class_and_sim(cls, a1, a2, tfidf=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+                           name_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
-            return None
+            return None, 0.0
 
         same_address = cls.is_address_dupe(a1, a2)
         if not same_address:
-            return same_address
+            return None, 0.0
 
         if with_unit:
             same_unit = cls.is_sub_building_dupe(a1, a2)
             if not same_unit:
-                return same_unit
+                return None, 0.0
 
-        same_name = cls.is_exact_name_dupe(a1_name, a2_name)
+        exact_same_name = cls.is_exact_name_dupe(a1_name, a2_name)
+        if exact_same_name:
+            return DedupeResponse.classifications.EXACT_DUPE, 1.0
+        elif tfidf:
+            name_sim = cls.name_similarity(a1_name, a2_name, tfidf)
+            if name_sim >= name_dupe_threshold:
+                return DedupeResponse.classifications.LIKELY_DUPE, name_sim
+            elif name_sim >= name_review_threshold:
+                return DedupeResponse.classifications.NEEDS_REVIEW, name_sim
 
-        if tfidf is not None and not same_name:
-            a1_name_tokens = NameDeduper.content_tokens(a1_name)
-            a2_name_tokens = NameDeduper.content_tokens(a2_name)
+        return None, 0.0
 
-            sim = NameDeduper.compare_in_memory(a1_name_tokens, a2_name_tokens, tfidf)
-            same_name = sim >= name_dupe_threshold
-
-        return same_address and same_name
+    @classmethod
+    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False):
+        dupe_class, sim = cls.dupe_class_and_sim(a1, a2, tfidf=tfidf, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit)
+        return dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)
 
     @classmethod
     def is_exact_name_dupe(cls, name1, name2):

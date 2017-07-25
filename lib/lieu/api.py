@@ -1,10 +1,9 @@
 import uuid
 
-from lieu.dedupe import NameDeduper
-
 
 class DedupeResponse(object):
     class classifications:
+        NEEDS_REVIEW = 'needs_review'
         LIKELY_DUPE = 'likely_dupe'
         EXACT_DUPE = 'exact_dupe'
 
@@ -13,6 +12,12 @@ class DedupeResponse(object):
         ADDRESS = 'address'
 
     guid_key = 'lieu:guid'
+
+    '''Similarity threshold above which entities are considered dupes'''
+    default_name_dupe_threshold = 0.9
+
+    '''Similarity threshold above where entities need human reviews'''
+    default_name_review_threshold = 0.7
 
     @classmethod
     def random_guid(cls):
@@ -40,10 +45,12 @@ class DedupeResponse(object):
         }
 
     @classmethod
-    def explain_venue_dupe(cls, name_dupe_threshold=NameDeduper.default_dupe_threshold, with_unit=False):
+    def explain_venue_dupe(cls, name_dupe_threshold=default_name_dupe_threshold,
+                           name_review_threshold=default_name_review_threshold, with_unit=False):
         return {
             'type': cls.deduping_types.VENUE,
             'name_dupe_threshold': name_dupe_threshold,
+            'name_review_threshold': name_review_threshold,
             'with_unit': with_unit,
         }
 
@@ -55,10 +62,11 @@ class DedupeResponse(object):
         }
 
     @classmethod
-    def add_same_as(cls, response, value, classification, is_canonical, explain=None):
+    def add_possible_dupe(cls, response, value, classification, name_similarity, is_canonical, explain=None):
         response.setdefault('same_as', [])
         same_as = {
             'is_canonical': is_canonical,
+            'name_similarity': similarity,
             'classification': classification,
             'object': value,
         }
@@ -69,12 +77,35 @@ class DedupeResponse(object):
         return response
 
     @classmethod
+    def add_possible_dupe(cls, response, value, classification, is_canonical, similarity, explain=None):
+        if classification in (cls.classifications.EXACT_DUPE, cls.classifications.LIKELY_DUPE):
+            key = 'same_as'
+        elif classification == cls.classifications.NEEDS_REVIEW:
+            key = 'possibly_same_as'
+        else:
+            return response
+
+        response.setdefault(key, [])
+        same_as = {
+            'is_canonical': is_canonical,
+            'classification': classification,
+            'object': value,
+        }
+        if explain:
+            if similarity is not None:
+                explain.update(similarity=similarity)
+            same_as['explain'] = explain
+        response[key].append(same_as)
+
+        return response
+
+    @classmethod
     def create(cls, value, is_dupe=False, add_random_guid=False, same_as=[], explain=None):
         response = cls.base_response(value, is_dupe=is_dupe)
         if add_random_guid:
             cls.add_random_guid(value)
-        for other, classification, is_canonical in same_as:
-            cls.add_same_as(response, other, classification, is_canonical, explain=explain)
+        for other, classification, is_canonical, similarity in same_as:
+            cls.add_possible_dupe(response, other, classification, is_canonical, similarity, explain=explain)
             if add_random_guid:
                 cls.add_random_guid(other)
         return response
