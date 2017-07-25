@@ -8,7 +8,7 @@ from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.api import DedupeResponse
 from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
-from lieu.encoding import safe_encode
+from lieu.encoding import safe_encode, safe_decode
 from lieu.floats import isclose
 
 double_metaphone = fuzzy.DMetaphone()
@@ -20,6 +20,11 @@ class AddressDeduper(object):
 
     @classmethod
     def component_equals(cls, c1, c2, component, no_whitespace=True):
+        if not c1 or not c2:
+            return False
+
+        c1 = safe_decode(c1)
+        c2 = safe_decode(c2)
         if no_whitespace and whitespace_regex.sub(u'', c1.lower()) == whitespace_regex.sub(u'', c2.lower()):
             return True
 
