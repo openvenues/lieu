@@ -1,4 +1,5 @@
 import uuid
+from operator import itemgetter
 
 
 class DedupeResponse(object):
@@ -86,16 +87,18 @@ class DedupeResponse(object):
             return response
 
         response.setdefault(key, [])
-        same_as = {
+        dupe = {
             'is_canonical': is_canonical,
             'classification': classification,
             'object': value,
         }
+
+        if similarity is not None:
+            dupe.update(similarity=max(similarity, 1.0))
+
         if explain:
-            if similarity is not None:
-                explain.update(similarity=similarity)
-            same_as['explain'] = explain
-        response[key].append(same_as)
+            dupe['explain'] = explain
+        response[key].append(dupe)
 
         return response
 
@@ -108,4 +111,6 @@ class DedupeResponse(object):
             cls.add_possible_dupe(response, other, classification, is_canonical, similarity, explain=explain)
             if add_random_guid:
                 cls.add_random_guid(other)
+        if 'possibly_same_as' in response:
+            response['possibly_same_as'] = sorted(response['possibly_same_as'], key=itemgetter('similarity'), reverse=True)
         return response
