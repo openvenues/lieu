@@ -94,7 +94,7 @@ class DedupeResponse(object):
         }
 
         if similarity is not None:
-            dupe.update(similarity=max(similarity, 1.0))
+            dupe.update(similarity=min(similarity, 1.0))
 
         if explain:
             dupe['explain'] = explain
