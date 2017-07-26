@@ -209,12 +209,12 @@ if __name__ == '__main__':
 
     for guid, value in guids_db.RangeIter():
         value = json.loads(value)
-        is_dupe = guid in dupes
+        is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_guid, classification, sim in dupe_pairs.get(guid, ())))
         if not is_dupe:
             DedupeResponse.add_guid(value, guid)
         response = DedupeResponse.base_response(value, is_dupe)
 
-        if is_dupe:
+        if guid in dupe_pairs:
             for other_guid, classification, sim in dupe_pairs[guid]:
                 other_value = json.loads(guids_db.Get(other_guid))
 
@@ -228,7 +228,7 @@ if __name__ == '__main__':
                 else:
                     explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)
 
-                is_canonical = other_guid not in dupe_pairs
+                is_canonical = other_guid not in dupes
 
                 if is_canonical:
                     DedupeResponse.add_guid(other_value, other_guid)
@@ -237,5 +237,4 @@ if __name__ == '__main__':
         out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
-    print('Finished. Got {} dupe records'.format(len(dupe_pairs)))
-    print('Number of canonicals = {}'.format(len(set.union(*dupe_pairs.values()))))
+    print('Finished. Got {} dupe records'.format(len(dupes)))
