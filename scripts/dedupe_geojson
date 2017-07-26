@@ -176,30 +176,27 @@ if __name__ == '__main__':
             if num_candidate_dupes > 1:
                 candidate_features = [(candidate_guid, json.loads(guids_db.Get(candidate_guid))) for candidate_guid in candidate_dupes]
 
-                for j in xrange(num_candidate_dupes):
-                    canonical_guid, canonical_feature = candidate_features[j]
+                for ((canonical_guid, canonical_feature), (other_guid, other_feature)) in itertools.combinations(candidate_features, 2):
                     canonical = Address.from_geojson(canonical_feature)
+                    other = Address.from_geojson(other_feature)
 
-                    for k in xrange(j + 1, num_candidate_dupes):
-                        other_guid, other_feature = candidate_features[k]
-                        other = Address.from_geojson(other_feature)
+                    if not address_only:
+                        dupe_class, sim = VenueDeduper.dupe_class_and_sim(canonical, other, tfidf=tfidf_index,
+                                                                          name_dupe_threshold=name_dupe_threshold,
+                                                                          name_review_threshold=name_review_threshold,
+                                                                          with_unit=with_unit)
 
-                        if not address_only:
-                            dupe_class, sim = VenueDeduper.dupe_class_and_sim(canonical, other, tfidf=tfidf_index,
-                                                                              name_dupe_threshold=name_dupe_threshold,
-                                                                              name_review_threshold=name_review_threshold,
-                                                                              with_unit=with_unit)
+                        if dupe_class is not None:
+                            dupe_pairs[other_guid].add((canonical_guid, dupe_class, sim))
 
-                            if dupe_class is not None:
-                                dupe_pairs[other_guid].add((canonical_guid, dupe_class, sim))
+                            if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
+                                dupes.add(other_guid)
+                    elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
+                        dupe_pairs[other_guid].add((canonical_guid, DedupeResponse.classifications.EXACT_DUPE, 1.0))
+                        dupes.add(other_guid)
 
-                                if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
-                                    dupes.add(other_guid)
-                        elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
-                            dupe_pairs[other_guid].add((canonical_guid, DedupeResponse.classifications.EXACT_DUPE, 1.0))
-                            dupes.add(other_guid)
+                    num_comparisons += 1
 
-                        num_comparisons += 1
         except StopIteration:
             break
 
