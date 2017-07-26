@@ -171,15 +171,16 @@ if __name__ == '__main__':
             i, (key, vals) = kvs.next()
             candidate_dupes = [v for k, v in vals]
 
-            candidate_features = [(candidate_guid, json.loads(guids_db.Get(candidate_guid))) for candidate_guid in candidate_dupes]
-            num_candidate_features = len(candidate_features)
+            num_candidate_dupes = len(candidate_dupes)
 
-            if num_candidate_features > 1:
-                for j in xrange(num_candidate_features):
+            if num_candidate_dupes > 1:
+                candidate_features = [(candidate_guid, json.loads(guids_db.Get(candidate_guid))) for candidate_guid in candidate_dupes]
+
+                for j in xrange(num_candidate_dupes):
                     canonical_guid, canonical_feature = candidate_features[j]
                     canonical = Address.from_geojson(canonical_feature)
 
-                    for k in xrange(j + 1, num_candidate_features):
+                    for k in xrange(j + 1, num_candidate_dupes):
                         other_guid, other_feature = candidate_features[k]
                         other = Address.from_geojson(other_feature)
 
