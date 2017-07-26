@@ -81,48 +81,81 @@ The output is a per-line JSON response which wraps the original GeoJSON object a
     "object": {
         "geometry": {
             "coordinates": [
-                -87.624148,
-                41.891601
+                -122.406645,
+                37.785415
             ],
             "type": "Point"
         },
-        "id": 756188375,
         "properties": {
-            "addr:full": "520 N. Michigan Ave. Chicago IL 60611",
-            "addr:housenumber": "520",
-            "addr:postcode": "60611",
-            "addr:street": "N. Michigan Ave.",
-            "lieu:guid": "3fc557ce7bf643fea2bb243aeaaac53a",
-            "name": "Nordstrom Spa",
+            "addr:full": "870 Market St San Francisco CA 94102",
+            "addr:housenumber": "870",
+            "addr:postcode": "94102",
+            "addr:street": "Market St",
+            "lieu:guid": "1968d59a119e442fa9c66dc9012be89d",
+            "name": "Consulate General Of Honduras"
         },
         "type": "Feature"
     },
-    "same_as": [
+    "possibly_same_as": [
         {
-            "classification": "likely_dupe",
+            "classification": "needs_review",
             "explain": {
-                "type": "address",
+                "name_dupe_threshold": 0.9,
+                "name_review_threshold": 0.7,
+                "type": "venue",
                 "with_unit": false
             },
             "is_canonical": true,
             "object": {
                 "geometry": {
                     "coordinates": [
-                        -87.624208,
-                        41.891767
+                        -122.406645,
+                        37.785415
                     ],
                     "type": "Point"
                 },
                 "properties": {
-                    "addr:full": "The Shops at North Bridge 520 N Michigan Ave Chicago IL 60611",
-                    "addr:housenumber": "520",
-                    "addr:postcode": "60611",
-                    "addr:street": "N Michigan Ave",
-                    "lieu:guid": "255ca3f2467f42958b7979c2077736d5",
-                    "name": "Spa Nordstrom",
+                    "addr:full": "870 Market St San Francisco CA 94102",
+                    "addr:housenumber": "870",
+                    "addr:postcode": "94102",
+                    "addr:street": "Market St",
+                    "lieu:guid": "d804e17f538b4307a2237dbd7992699c",
+                    "wof:name": "Honduras Consulates",
                 },
                 "type": "Feature"
-            }
+            },
+            "similarity": 0.8511739191000001
+        }
+    ],
+    "same_as": [
+        {
+            "classification": "likely_dupe",
+            "explain": {
+                "name_dupe_threshold": 0.9,
+                "name_review_threshold": 0.7000000000000001,
+                "type": "venue",
+                "with_unit": false
+            },
+            "is_canonical": true,
+            "object": {
+                "geometry": {
+                    "coordinates": [
+                        -122.406645,
+                        37.785415
+                    ],
+                    "type": "Point"
+                },
+                "properties": {
+                    "addr:full": "870 Market St San Francisco CA 94102",
+                    "addr:housenumber": "870",
+                    "addr:postcode": "94102",
+                    "addr:street": "Market St",
+                    "lieu:guid": "ec28adce0a134cbfbaacb87e71f4ab34",
+                    "wof:name": "Honduras Consulate General of",
+                },
+                "type": "Feature"
+            },
+            "similarity": 1.0
         }
     ]
 }
@@ -134,11 +167,13 @@ Note: the property "lieu:guid" is added by the deduping job and should be retain
 
 In Spark, the output will be split across some number of part-* files on S3 in the directory specified. They can be downloaded and concatenated as needed.
 
-## Exact dupes vs. likely dupes
+## Dupe classifications
 
-Addresses are not an exact science, so even the term "exact" here means "sharing at least one libpostal expansion in common". As such, "Market Street" and "Market St" would be considered exact matches, as would "Third Avenue" and "3rd Ave", etc.
+**exact_dupe**: addresses are not an exact science, so even the term "exact" here means "sharing at least one libpostal expansion in common". As such, "Market Street" and "Market St" would be considered exact matches, as would "Third Avenue" and "3rd Ave", etc. For street name/house number, we require this sort of exact match, but more freedom is allowed in the venue/business name. If both the venue name and the address are exact matches after expansion, they are considered exact dupes.
 
-For street name/house number, we require this sort of exact match, but more freedom is allowed in the venue/business name. A likely dupe may have some minor misspellings, may be missing common words like "Inc" or "Restaurant", and may use different word orders (often the case for professionals such as lawyers e.g. "Michelle Obama" might be written "Obama, Michelle").
+**likely_dupe**: a likely dupe may have some minor misspellings, may be missing common words like "Inc" or "Restaurant", and may use different word orders (often the case for professionals such as lawyers e.g. "Michelle Obama" might be written "Obama, Michelle").
+
+**needs_review**: these entries might be duplicates, and have high similarity,b ut don't quite meet the threshold required for classification as a likely dupe which can be automatically merged. If all of an entry's potential dupes are classified as "needs_review", that entry will not be considered a dupe (`is_dupe=False` in the response), but it may be prudent to flag the entry for a human to look at. The needs_review entries are stored as a separate list in the response (`possibly_same_as`) and are sorted in reverse order of their similarity to the candidate object, so the most similar entry will be listed first.
 
 ## Examples of likely dupes
 
