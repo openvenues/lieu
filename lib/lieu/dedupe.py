@@ -3,7 +3,7 @@ import geohash
 import re
 import six
 
-from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_UNIT, ADDRESS_LEVEL, ADDRESS_HOUSE_NUMBER
+from postal.expand import expand_address, ADDRESS_NAME, ADDRESS_STREET, ADDRESS_UNIT, ADDRESS_LEVEL, ADDRESS_HOUSE_NUMBER, ADDRESS_POSTAL_CODE, ADDRESS_TOPONYM
 
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.api import DedupeResponse
@@ -86,20 +86,46 @@ class AddressDeduper(object):
 
         return street_expansions, house_number_expansions
 
+    GEOHASH_KEY_PREFIX = 'gh'
+    POSTCODE_KEY_PREFIX = 'pc'
+    CITY_KEY_PREFIX = 'ct'
+
     @classmethod
-    def near_dupe_hashes(cls, address, geohash_precision=DEFAULT_GEOHASH_PRECISION):
+    def near_dupe_hashes(cls, address, geohash_precision=DEFAULT_GEOHASH_PRECISION, use_latlon=True, use_city=False, use_postal_code=False):
         address_expansions = cls.component_expansions(address)
 
         lat = address.get(Coordinates.LATITUDE)
         lon = address.get(Coordinates.LONGITUDE)
-        if lat is None or lon is None or (isclose(lat, 0.0) and isclose(lon, 0.0)) or lat >= 90.0 or lat <= -90.0 or not any(address_expansions):
+        postcode = address.get(AddressComponents.POSTAL_CODE, u'').strip()
+        city = address.get(AddressComponents.CITY, u'').strip()
+
+        if not any(address_expansions):
             return
 
-        geo = geohash.encode(lat, lon)[:geohash_precision]
-        geohash_neighbors = [geo] + geohash.neighbors(geo)
+        if lat and lon and use_latlon and not ((isclose(lat, 0.0) and isclose(lon, 0.0)) or lat >= 90.0 or lat <= -90.0):
+            geo = geohash.encode(lat, lon)[:geohash_precision]
+            geohash_neighbors = [geo] + geohash.neighbors(geo)
 
-        for keys in six.itertools.product(geohash_neighbors, *address_expansions):
-            yield u'|'.join(keys)
+            base_key = cls.GEOHASH_KEY_PREFIX
+
+            for keys in six.itertools.product(geohash_neighbors, *address_expansions):
+                yield u'{}|{}'.format(base_key, u'|'.join(keys))
+
+        if postcode and use_postal_code:
+            postcode_expansions = expand_address(postcode, address_components=ADDRESS_POSTAL_CODE)
+
+            base_key = cls.POSTCODE_KEY_PREFIX
+
+            for keys in six.itertools.product(postcode_expansions, *address_expansions):
+                yield u'{}|{}'.format(base_key, u'|'.join(keys))
+
+        if city and use_city:
+            city_expansions = expand_address(city, address_components=ADDRESS_TOPONYM)
+
+            base_key = cls.CITY_KEY_PREFIX
+
+            for keys in six.itertools.product(city_expansions, *address_expansions):
+                yield u'{}|{}'.format(base_key, u'|'.join(keys))
 
 
 class NameDeduper(object):
