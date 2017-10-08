@@ -35,6 +35,26 @@ def open_geojson_file(filename):
 
     return f
 
+
+def dupe_response(guid, value, dupe_pairs, guids_db):
+    value = json.loads(value)
+    is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_guid, classification, sim in dupe_pairs.get(guid, ())))
+    if not is_dupe:
+        DedupeResponse.add_guid(value, guid)
+    response = DedupeResponse.base_response(value, is_dupe)
+
+    if guid in dupe_pairs:
+        for other_guid, classification, sim in dupe_pairs[guid]:
+            other_value = json.loads(guids_db.Get(other_guid))
+
+            is_canonical = other_guid not in dupes
+
+            if is_canonical:
+                DedupeResponse.add_guid(other_value, other_guid)
+            DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
+    return response
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -44,6 +64,26 @@ if __name__ == '__main__':
                         action='store_true',
                         default=False,
                         help='Address duplicates only')
+
+    parser.add_argument('--dupes-only',
+                        action='store_true',
+                        default=False,
+                        help='Only output the dupes')
+
+    parser.add_argument('--no-latlon',
+                        action='store_true',
+                        default=False,
+                        help='Do not use lat/lon or geohashing (if one data set has no lat/lons for instance)')
+
+    parser.add_argument('--use-city',
+                        action='store_true',
+                        default=False,
+                        help='Use the city for cases where lat/lon is not available (only for local data sets)')
+
+    parser.add_argument('--use-postal-code',
+                        action='store_true',
+                        default=False,
+                        help='Use the postcode when lat/lon is not available')
 
     parser.add_argument('-output-dir', '-o',
                         default='deduped',
@@ -86,6 +126,10 @@ if __name__ == '__main__':
     with_unit = args.with_unit
     name_dupe_threshold = args.name_dupe_threshold
     name_review_threshold = args.name_review_threshold
+
+    use_latlon = not args.no_latlon
+    use_city = args.use_city
+    use_postal_code = args.use_postal_code
 
     tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
 
@@ -132,9 +176,9 @@ if __name__ == '__main__':
                 if not name:
                     continue
                 tfidf_index.update(Counter(name.lower().split()))
-                hashes = VenueDeduper.near_dupe_hashes(address)
+                hashes = VenueDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
             else:
-                hashes = AddressDeduper.near_dupe_hashes(address)
+                hashes = AddressDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=args.use_city, use_postal_code=use_postal_code)
 
             for h in hashes:
                 map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
@@ -205,34 +249,23 @@ if __name__ == '__main__':
 
     print('* Building output file')
 
-    for guid, value in guids_db.RangeIter():
-        value = json.loads(value)
-        is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_guid, classification, sim in dupe_pairs.get(guid, ())))
-        if not is_dupe:
-            DedupeResponse.add_guid(value, guid)
-        response = DedupeResponse.base_response(value, is_dupe)
+    if not address_only:
+        explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=name_dupe_threshold,
+                                                    name_review_threshold=name_review_threshold,
+                                                    with_unit=with_unit)
 
-        if guid in dupe_pairs:
-            for other_guid, classification, sim in dupe_pairs[guid]:
-                other_value = json.loads(guids_db.Get(other_guid))
+    else:
+        explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)
 
-                if not address_only:
-                    canonical = Address.from_geojson(value)
-                    other = Address.from_geojson(other_value)
-
-                    explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=name_dupe_threshold, 
-                                                                name_review_threshold=name_review_threshold,
-                                                                with_unit=with_unit)
-                else:
-                    explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)
-
-                is_canonical = other_guid not in dupes
-
-                if is_canonical:
-                    DedupeResponse.add_guid(other_value, other_guid)
-                DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
-
-        out_file.write(json.dumps(response) + '\n')
+    if args.dupes_only:
+        for guid in dupe_pairs:
+            value = guids_db.Get(guid)
+            response = dupe_response(guid, value, dupe_pairs, guids_db)
+            out_file.write(json.dumps(response) + '\n')
+    else:
+        for guid, value in guids_db.RangeIter():
+            response = dupe_response(guid, value, dupe_pairs, guids_db)
+            out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
     print('Finished. Got {} dupe records'.format(len(dupes)))
