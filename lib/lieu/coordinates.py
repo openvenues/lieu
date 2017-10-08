@@ -109,6 +109,8 @@ def to_valid_longitude(longitude):
 def latlon_to_decimal(latitude, longitude):
     have_lat = False
     have_lon = False
+    if latitude is None or longitude is None:
+        return None, None
 
     latitude = safe_decode(latitude).strip(u' ,;|')
     longitude = safe_decode(longitude).strip(u' ,;|')
