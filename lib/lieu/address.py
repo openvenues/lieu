@@ -7,6 +7,7 @@ class AddressComponents:
     STREET = 'road'
     FLOOR = 'floor'
     UNIT = 'unit'
+    CITY = 'city'
     POSTAL_CODE = 'postcode'
 
 
@@ -37,6 +38,7 @@ class Address(object):
         'floor': AddressComponents.FLOOR,
         'addr:unit': AddressComponents.UNIT,
         'unit': AddressComponents.UNIT,
+        'addr:city': AddressComponents.CITY,
         'addr:postcode': AddressComponents.POSTAL_CODE,
         'postcode': AddressComponents.POSTAL_CODE,
         'postal_code': AddressComponents.POSTAL_CODE,
