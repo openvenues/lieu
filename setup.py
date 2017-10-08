@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 def main():
     setup(
         name='lieu',
-        version='0.1',
+        version='0.2',
         install_requires=[
             'six',
             'postal==1.0',
