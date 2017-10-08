@@ -21,6 +21,36 @@ class DedupeVenuesJob(MRJob):
             help="Address duplicates only")
 
         self.add_passthrough_option(
+            '--no-geo-model',
+            default=False,
+            action="store_true",
+            help="Disables the geo model (if using Spark on a small, local data set)")
+
+        self.add_passthrough_option(
+            '--dupes-only',
+            action='store_true',
+            default=False,
+            help='Only output the dupes')
+
+        self.add_passthrough_option(
+            '--no-latlon',
+            action='store_true',
+            default=False,
+            help='Do not use lat/lon or geohashing (if one data set has no lat/lons for instance)')
+
+        self.add_passthrough_option(
+            '--use-city',
+            action='store_true',
+            default=False,
+            help='Use the city for cases where lat/lon is not available (only for local data sets)')
+
+        self.add_passthrough_option(
+            '--use-postal-code',
+            action='store_true',
+            default=False,
+            help='Use the postcode when lat/lon is not available')
+
+        self.add_passthrough_option(
             '--name-dupe-threshold',
             type=float,
             default=DedupeResponse.default_name_dupe_threshold,
@@ -51,16 +81,23 @@ class DedupeVenuesJob(MRJob):
 
         address_ids = geojson_ids.map(lambda (geojson, uid): (Address.from_geojson(geojson), uid))
 
+        geo_model = not self.options.no_geo_model
+
+        dupes_only = self.options.dupes_only
+        use_latlon = not self.options.no_latlon
+        use_city = self.options.use_city
+        use_postal_code = self.options.use_postal_code
+
         if not self.options.address_only:
-            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids)
+            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
         else:
-            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids)
+            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
 
         dupes = dupes_with_classes_and_sims.filter(lambda ((uid1, uid2), (classification, sim)): classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)) \
                                            .map(lambda ((uid1, uid2), (classification, sim)): (uid1, True)) \
                                            .distinct()
 
-        possible_dupe_pairs = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid1, (uid2, classification, sim))) \
+        possible_dupe_pairs = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid1, True)) \
                                                          .distinct()
 
         canonicals = dupes_with_classes_and_sims.map(lambda ((uid1, uid2), (classification, sim)): (uid2, (uid1, classification, sim))) \
@@ -87,13 +124,16 @@ class DedupeVenuesJob(MRJob):
                                              .join(id_geojson) \
                                              .map(lambda (uid1, ((same_as, is_dupe), value)): (uid1, DedupeResponse.create(value, is_dupe=is_dupe or False, add_random_guid=True, same_as=same_as, explain=explain)))
 
-        non_dupe_responses = id_geojson.subtractByKey(possible_dupe_pairs) \
-                                       .map(lambda (uid, value): (uid, DedupeResponse.base_response(value, is_dupe=False)))
+        if dupes_only:
+            all_responses = dupe_responses
+        else:
+            non_dupe_responses = id_geojson.subtractByKey(possible_dupe_pairs) \
+                                           .map(lambda (uid, value): (uid, DedupeResponse.base_response(value, is_dupe=False)))
 
-        all_responses = non_dupe_responses.union(dupe_responses) \
-                                          .sortByKey() \
-                                          .values() \
-                                          .map(lambda response: json.dumps(response))
+            all_responses = non_dupe_responses.union(dupe_responses) \
+                                              .sortByKey() \
+                                              .values() \
+                                              .map(lambda response: json.dumps(response))
 
         all_responses.saveAsTextFile(output_path)
 

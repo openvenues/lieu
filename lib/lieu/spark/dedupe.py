@@ -25,8 +25,8 @@ class AddressDeduperSpark(object):
         return dupe_pairs
 
     @classmethod
-    def dupe_sims(cls, address_ids):
-        address_hashes = address_ids.flatMap(lambda (address, uid): [(h, (uid, address)) for h in AddressDeduper.near_dupe_hashes(address)])
+    def dupe_sims(cls, address_ids, use_latlon=True, use_city=False, use_postal_code=False):
+        address_hashes = address_ids.flatMap(lambda (address, uid): [(h, (uid, address)) for h in AddressDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)])
 
         return cls.address_dupe_pairs(address_hashes) \
                   .map(lambda (uid1, uid2): ((uid1, uid2), (DedupeResponse.classifications.EXACT_DUPE, 1.0)))
@@ -64,7 +64,8 @@ class VenueDeduperSpark(object):
     @classmethod
     def dupe_sims(cls, address_ids, geo_model=True, doc_frequency=None, geo_doc_frequency=None, total_docs=0, total_docs_by_geo=None,
                   min_name_word_count=1, min_geo_name_word_count=1, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
-                  name_review_threshold=DedupeResponse.default_name_review_threshold, geo_model_proportion=DEFAULT_GEO_MODEL_PROPORTION):
+                  name_review_threshold=DedupeResponse.default_name_review_threshold, geo_model_proportion=DEFAULT_GEO_MODEL_PROPORTION,
+                  use_latlon=True, use_city=False, use_postal_code=False):
         name_ids = cls.names(address_ids)
         name_word_counts = TFIDFSpark.doc_word_counts(name_ids, has_id=True)
         batch_doc_frequency = TFIDFSpark.doc_frequency(name_word_counts)
@@ -105,7 +106,7 @@ class VenueDeduperSpark(object):
         if geo_model:
             names_geo_tfidf = GeoTFIDFSpark.docs_tfidf(name_geo_word_counts, geo_doc_frequency, updated_total_docs_geo_aliases)
 
-        address_hashes = address_ids.flatMap(lambda (address, uid): [(h, (uid, address)) for h in VenueDeduper.near_dupe_hashes(address)])
+        address_hashes = address_ids.flatMap(lambda (address, uid): [(h, (uid, address)) for h in VenueDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)])
 
         address_dupe_pairs = AddressDeduperSpark.address_dupe_pairs(address_hashes)
 
@@ -124,11 +125,12 @@ class VenueDeduperSpark(object):
                                                                                                                               geo_tfidf1.items(), geo_tfidf2.items(),
                                                                                                                               geo_model_proportion=geo_model_proportion))
 
+        exact_dupe_sims = exact_dupe_pairs.map(lambda (uid1, uid2): ((uid1, uid2), (DedupeResponse.classifications.EXACT_DUPE, 1.0)))
+
         possible_dupe_sims = dupe_pair_sims.filter(lambda ((uid1, uid2), sim): sim >= name_review_threshold) \
                                            .mapValues(lambda sim: (DedupeResponse.classifications.LIKELY_DUPE if sim >= name_dupe_threshold else DedupeResponse.classifications.NEEDS_REVIEW, sim)) \
-                                           .subtractByKey(exact_dupe_pairs)
+                                           .subtractByKey(exact_dupe_sims)
 
-        exact_dupe_sims = exact_dupe_pairs.map(lambda (uid1, uid2): ((uid1, uid2), (DedupeResponse.classifications.EXACT_DUPE, 1.0)))
         all_dupe_sims = possible_dupe_sims.union(exact_dupe_sims)
 
         return all_dupe_sims
