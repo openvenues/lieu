@@ -96,8 +96,8 @@ class AddressDeduper(object):
 
         lat = address.get(Coordinates.LATITUDE)
         lon = address.get(Coordinates.LONGITUDE)
-        postcode = address.get(AddressComponents.POSTAL_CODE, u'').strip()
-        city = address.get(AddressComponents.CITY, u'').strip()
+        postcode = safe_decode(address.get(AddressComponents.POSTAL_CODE, u'')).strip()
+        city = safe_decode(address.get(AddressComponents.CITY, u'')).strip()
 
         if not any(address_expansions):
             return
