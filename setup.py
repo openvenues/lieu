@@ -12,7 +12,7 @@ def main():
             'python-Levenshtein',
             'leveldb',
             'ujson',
-            'Fuzzy',
+            'Fuzzy==1.1',
             'mrjob',
         ],
         package_dir={'': 'lib'},
