@@ -125,7 +125,8 @@ class DedupeVenuesJob(MRJob):
                                              .map(lambda (uid1, ((same_as, is_dupe), value)): (uid1, DedupeResponse.create(value, is_dupe=is_dupe or False, add_random_guid=True, same_as=same_as, explain=explain)))
 
         if dupes_only:
-            all_responses = dupe_responses
+            all_responses = dupe_responses.values() \
+                                          .map(lambda response: json.dumps(response))
         else:
             non_dupe_responses = id_geojson.subtractByKey(possible_dupe_pairs) \
                                            .map(lambda (uid, value): (uid, DedupeResponse.base_response(value, is_dupe=False)))
