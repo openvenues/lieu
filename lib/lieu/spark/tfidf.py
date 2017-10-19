@@ -37,11 +37,14 @@ class TFIDFSpark(object):
     def docs_tfidf(cls, doc_word_counts, doc_frequency, total_docs, min_count=1):
         if min_count > 1:
             doc_frequency = cls.filter_min_doc_frequency(doc_frequency, min_count=min_count)
+
+        num_partitions = doc_word_counts.getNumPartitions()
+
         doc_ids_word_stats = doc_word_counts.join(doc_frequency).map(lambda (word, ((doc_id, term_frequency), doc_frequency)): (doc_id, (word, term_frequency, doc_frequency)))
         docs_tfidf = doc_ids_word_stats.groupByKey() \
                                        .mapValues(lambda vals: {word: TFIDF.tfidf_score(term_frequency, doc_frequency, total_docs)
                                                                 for word, term_frequency, doc_frequency in vals})
-        return docs_tfidf
+        return docs_tfidf.coalesce(num_partitions)
 
 
 class GeoTFIDFSpark(TFIDFSpark):
@@ -106,6 +109,8 @@ class GeoTFIDFSpark(TFIDFSpark):
         if min_count > 1:
             geo_doc_frequency = cls.filter_min_doc_frequency(geo_doc_frequency, min_count=min_count)
 
+        num_partitions = doc_word_counts.getNumPartitions()
+
         geo_doc_frequency_totals = geo_doc_frequency.map(lambda ((geo, word), count): (geo, (word, count))) \
                                                     .join(total_docs_by_geo) \
                                                     .map(lambda (geo, ((word, count), num_docs)): ((geo, word), (count, num_docs)))
@@ -115,4 +120,4 @@ class GeoTFIDFSpark(TFIDFSpark):
         docs_tfidf = doc_ids_word_stats.groupByKey() \
                                        .mapValues(lambda vals: {word: TFIDF.tfidf_score(term_frequency, doc_frequency, num_docs)
                                                                 for geo, word, term_frequency, doc_frequency, num_docs in vals})
-        return docs_tfidf
+        return docs_tfidf.coalesce(num_partitions)
