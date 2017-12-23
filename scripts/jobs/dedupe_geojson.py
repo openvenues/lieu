@@ -52,13 +52,13 @@ class DedupeVenuesJob(MRJob):
 
         self.add_passthrough_option(
             '--name-dupe-threshold',
-            type=float,
+            type='float',
             default=DedupeResponse.default_name_dupe_threshold,
             help='Likely-dupe threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
         self.add_passthrough_option(
             '--name-review-threshold',
-            type=float,
+            type='float',
             default=DedupeResponse.default_name_review_threshold,
             help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
