@@ -57,7 +57,10 @@ class Address(object):
         properties = data.get('properties')
         fields = {cls.field_map[k]: v for k, v in six.iteritems(properties) if k in cls.field_map}
         lon, lat = data.get('geometry', {}).get('coordinates', (None, None))
-        lat, lon = latlon_to_decimal(lat, lon)
+        try:
+            lat, lon = latlon_to_decimal(lat, lon)
+        except ValueError:
+            lat = lon = None
 
         if lat is not None:
             fields[Coordinates.LATITUDE] = lat
