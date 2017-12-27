@@ -88,6 +88,8 @@ class GeoTFIDFSpark(TFIDFSpark):
         if not has_id:
             docs = docs.zipWithUniqueId()
 
+        docs = docs.filter(lambda ((doc, lat, lon), doc_id): lat is not None and lon is not None)
+
         total_docs_by_geo = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), 1)) \
                                 .reduceByKey(lambda x, y: x + y)
         return total_docs_by_geo
