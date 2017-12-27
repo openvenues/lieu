@@ -55,9 +55,11 @@ class GeoTFIDFSpark(TFIDFSpark):
         return geohash.encode(lat, lon)[:geohash_precision]
 
     @classmethod
-    def doc_word_counts(cls, docs, geo_aliases=None,  has_id=False, geohash_precision=DEFAULT_GEOHASH_PRECISION):
+    def doc_word_counts(cls, docs, geo_aliases=None, has_id=False, geohash_precision=DEFAULT_GEOHASH_PRECISION):
         if not has_id:
             docs = docs.zipWithUniqueId()
+
+        docs = docs.filter(lambda ((doc, lat, lon), doc_id): lat is not None and lon is not None)
 
         if geo_aliases:
             doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), (doc, doc_id))) \
