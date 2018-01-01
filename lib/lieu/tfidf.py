@@ -1,14 +1,19 @@
+import csv
 import math
 import six
 import ujson as json
 
 from collections import defaultdict
 
+from lieu.encoding import safe_encode, safe_decode
 from lieu.floats import isclose
 
 
 class TFIDF(object):
     finalized = False
+
+    term_key_prefix = 't:'
+    doc_count_key = 'N'
 
     def __init__(self):
         self.idf_counts = defaultdict(int)
@@ -18,7 +23,7 @@ class TFIDF(object):
         if self.finalized or not doc:
             return
 
-        for feature, count in doc.iteritems():
+        for feature, count in six.iteritems(doc):
             self.idf_counts[feature] += 1
 
         self.N += 1
@@ -30,24 +35,32 @@ class TFIDF(object):
         })
 
     def write(self, f):
-        f.write(self.serialize())
+        writer = csv.writer(f, delimiter='\t')
+        for k, v in six.iteritems(self.idf_counts):
+            writer.writerow([safe_encode(u'{}{}'.format(self.term_key_prefix, safe_decode(k))), six.text_type(v)])
+        writer.writerow([self.doc_count_key, six.text_type(self.N)])
 
     def save(self, filename):
         f = open(filename, 'w')
         self.write(f)
+        f.close()
 
-    @classmethod
-    def read(cls, f):
-        data = json.load(f)
-        idf = cls()
-        idf.N = data['N']
-        idf.idf_counts.update(data['idf_counts'])
-        return idf
+    def read(self, f):
+        reader = csv.reader(f, delimiter='\t')
+        for key, val in reader:
+            val = long(val)
+            key = safe_decode(key)
+            if key.startswith(self.term_key_prefix):
+                self.idf_counts[key] += val
+            elif key == self.doc_count_key:
+                self.N += val
 
     @classmethod
     def load(cls, filename):
         f = open(filename)
-        return cls.read(f)
+        idf = cls()
+        idf.read(f)
+        return idf
 
     def prune(self, min_count):
         self.idf_counts = {k: count for k, count in self.idf_counts.iteritems() if count >= min_count}
