@@ -4,15 +4,12 @@ from setuptools import setup, find_packages
 def main():
     setup(
         name='lieu',
-        version='0.2',
+        version='1.0',
         install_requires=[
             'six',
-            'postal==1.0',
-            'python-geohash==0.8.5',
-            'python-Levenshtein',
+            'postal>=1.1.2',
             'leveldb',
             'ujson',
-            'Fuzzy==1.1',
             'mrjob',
         ],
         package_dir={'': 'lib'},
