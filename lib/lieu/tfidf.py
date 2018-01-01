@@ -47,10 +47,13 @@ class TFIDF(object):
 
     def read(self, f):
         reader = csv.reader(f, delimiter='\t')
+        term_prefix_len = len(self.term_key_prefix)
         for key, val in reader:
             val = long(val)
             key = safe_decode(key)
             if key.startswith(self.term_key_prefix):
+                key = key[term_prefix_len:]
+
                 self.idf_counts[key] += val
             elif key == self.doc_count_key:
                 self.N += val
