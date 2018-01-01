@@ -14,12 +14,10 @@ from collections import Counter, defaultdict
 
 from lieu.address import Address, AddressComponents
 from lieu.api import DedupeResponse
-from lieu.dedupe import VenueDeduper, AddressDeduper, NameDeduper
+from lieu.dedupe import VenueDeduper, AddressDeduper
 from lieu.encoding import safe_encode, safe_decode
 from lieu.tfidf import TFIDF
 from lieu.input import GeoJSONParser, GeoJSONLineParser
-
-from postal.expand import ADDRESS_NAME
 
 EXACT_DUPE = 'exact_dupe'
 LIKELY_DUPE = 'likely_dupe'
@@ -78,12 +76,17 @@ if __name__ == '__main__':
     parser.add_argument('--use-city',
                         action='store_true',
                         default=False,
-                        help='Use the city for cases where lat/lon is not available (only for local data sets)')
+                        help='Use the city name as a geo qualifier (only for local data sets)')
+
+    parser.add_argument('--use-small-containing',
+                        action='store_true',
+                        default=False,
+                        help='Use the small containing boundaries like county as a geo qualifier (only for local data sets)')
 
     parser.add_argument('--use-postal-code',
                         action='store_true',
                         default=False,
-                        help='Use the postcode when lat/lon is not available')
+                        help='Use the postcode as a geo qualifier (only for single-country data sets or cases where postcode is unambiguous)')
 
     parser.add_argument('-output-dir', '-o',
                         default='deduped',
@@ -130,6 +133,7 @@ if __name__ == '__main__':
     use_latlon = not args.no_latlon
     use_city = args.use_city
     use_postal_code = args.use_postal_code
+    use_containing = args.use_small_containing
 
     tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
 
@@ -176,9 +180,9 @@ if __name__ == '__main__':
                 if not name:
                     continue
                 tfidf_index.update(Counter(name.lower().split()))
-                hashes = VenueDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
+                hashes = VenueDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
             else:
-                hashes = AddressDeduper.near_dupe_hashes(address, use_latlon=use_latlon, use_city=args.use_city, use_postal_code=use_postal_code)
+                hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
 
             for h in hashes:
                 map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
