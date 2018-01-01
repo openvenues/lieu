@@ -5,6 +5,7 @@ import six
 
 from postal.near_dupe import near_dupe_hashes
 from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate
+from postal.normalize import normalize_string
 from postal.tokenize import tokenize
 from postal.token_types import token_types
 
@@ -138,7 +139,7 @@ class AddressDeduper(object):
 class Name(object):
     @classmethod
     def content_tokens(cls, name):
-        return [t for t, c in tokenize(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES]
+        return [t for t, c in tokenize(normalize_string(name)) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES]
 
 
 class VenueDeduper(AddressDeduper):
@@ -151,13 +152,13 @@ class VenueDeduper(AddressDeduper):
 
     @classmethod
     def tfidf_vector(cls, tokens, tfidf_index):
-        token_counts = ordered_word_count(tokens1)
+        token_counts = ordered_word_count(tokens)
         return tfidf_index.tfidf_vector(token_counts)
 
     @classmethod
     def tfidf_vector_normalized(cls, tokens, tfidf_index):
         tfidf = cls.tfidf_vector(tokens, tfidf_index)
-        return tfidf.normalized_tfidf_vector(tfidf)
+        return tfidf_index.normalized_tfidf_vector(tfidf)
 
     dupe_class_map = {
         duplicate_status.LIKELY_DUPLICATE: DedupeResponse.classifications.LIKELY_DUPE,
