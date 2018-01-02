@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 
 from lieu.address import Address, AddressComponents
 from lieu.api import DedupeResponse
-from lieu.dedupe import VenueDeduper, AddressDeduper
+from lieu.dedupe import VenueDeduper, AddressDeduper, Name
 from lieu.encoding import safe_encode, safe_decode
 from lieu.tfidf import TFIDF
 from lieu.input import GeoJSONParser, GeoJSONLineParser
@@ -179,7 +179,7 @@ if __name__ == '__main__':
                 name = address.get(AddressComponents.NAME)
                 if not name:
                     continue
-                tfidf_index.update(Counter(name.lower().split()))
+                tfidf_index.update(Counter(Name.content_tokens(name)))
                 hashes = VenueDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
             else:
                 hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
@@ -230,8 +230,8 @@ if __name__ == '__main__':
 
                     if not address_only:
                         dupe_class, sim = VenueDeduper.dupe_class_and_sim(canonical, other, tfidf=tfidf_index,
-                                                                          name_dupe_threshold=name_dupe_threshold,
-                                                                          name_review_threshold=name_review_threshold,
+                                                                          likely_dupe_threshold=name_dupe_threshold,
+                                                                          needs_review_threshold=name_review_threshold,
                                                                           with_unit=with_unit)
 
                         if dupe_class is not None:
@@ -254,8 +254,8 @@ if __name__ == '__main__':
     print('* Building output file')
 
     if not address_only:
-        explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=name_dupe_threshold,
-                                                    name_review_threshold=name_review_threshold,
+        explain = DedupeResponse.explain_venue_dupe(name_likely_dupe_threshold=name_dupe_threshold,
+                                                    name_needs_review_threshold=name_review_threshold,
                                                     with_unit=with_unit)
 
     else:
