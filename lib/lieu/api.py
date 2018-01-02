@@ -46,12 +46,12 @@ class DedupeResponse(object):
         }
 
     @classmethod
-    def explain_venue_dupe(cls, name_dupe_threshold=default_name_dupe_threshold,
-                           name_review_threshold=default_name_review_threshold, with_unit=False):
+    def explain_venue_dupe(cls, name_likely_dupe_threshold=default_name_dupe_threshold,
+                           name_needs_review_threshold=default_name_review_threshold, with_unit=False):
         return {
             'type': cls.deduping_types.VENUE,
-            'name_dupe_threshold': name_dupe_threshold,
-            'name_review_threshold': name_review_threshold,
+            'name_likely_dupe_threshold': name_likely_dupe_threshold,
+            'name_needs_review_threshold': name_needs_review_threshold,
             'with_unit': with_unit,
         }
 
