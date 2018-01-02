@@ -5,7 +5,7 @@ import six
 
 from postal.near_dupe import near_dupe_hashes
 from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate
-from postal.normalize import normalize_string
+from postal.normalize import normalized_tokens
 from postal.tokenize import tokenize
 from postal.token_types import token_types
 
@@ -37,8 +37,11 @@ class AddressDeduper(object):
         if not a1_street or not a2_street or not a1_house_number or not a2_house_number:
             return None
 
-        same_street = is_street_duplicate(a1_street, a2_street, languages=languages)
-        same_house_number = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
+        street_status = is_street_duplicate(a1_street, a2_street, languages=languages)
+        house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
+
+        same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+        same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
 
         return same_street and same_house_number
 
@@ -47,7 +50,7 @@ class AddressDeduper(object):
         a1_unit = a1.get(AddressComponents.UNIT)
         a2_unit = a2.get(AddressComponents.UNIT)
 
-        if a1_unit and a2_unit and not is_unit_duplicate(a1_unit, a2_unit, languages=languages):
+        if a1_unit and a2_unit and is_unit_duplicate(a1_unit, a2_unit, languages=languages) != duplicate_status.EXACT_DUPLICATE:
             return False
         elif a1_unit or a2_unit:
             return False
@@ -55,7 +58,7 @@ class AddressDeduper(object):
         a2_floor = a1.get(AddressComponents.FLOOR)
         a2_floor = a2.get(AddressComponents.FLOOR)
 
-        if a1_floor and a2_floor and not is_floor_duplicate(a1_floor, a2_floor, languages=languages):
+        if a1_floor and a2_floor and is_floor_duplicate(a1_floor, a2_floor, languages=languages) != duplicate_status.EXACT_DUPLICATE:
             return False
         elif a1_floor or a2_floor:
             return False
@@ -69,14 +72,19 @@ class AddressDeduper(object):
         return languages1 + [lang for lang in languages2 if lang not in languages_set1]
 
     @classmethod
-    def combined_place_languages(cls, a1, a2):
-        a1_keys, a1_values = cls.address_labels_and_values(a1)
-        a1_languages = place_languages(a1_keys, a1_values) or []
+    def combined_place_languages(cls, *addresses):
+        languages = []
+        languages_set = set()
+        for address in addresses:
+            keys, values = cls.address_labels_and_values(address)
+            if not (keys and values):
+                continue
+            langs = place_languages(keys, values) or []
+            new_languages = [lang for lang in langs if lang not in languages_set]
+            languages.extend(new_languages)
+            languages_set.update(new_languages)
 
-        a2_keys, a2_values = cls.address_labels_and_values(a2)
-        a2_languages = place_languages(a2_keys, a2_values) or []
-
-        return cls.combined_languages(a1_languages, a2_languages)
+        return languages
 
     @classmethod
     def is_dupe(cls, a1, a2, with_unit=True):
@@ -89,6 +97,10 @@ class AddressDeduper(object):
         string_address = {k: v for k, v in six.iteritems(address) if isinstance(v, six.string_types) and v.strip()}
 
         return string_address.keys(), string_address.values()
+
+    @classmethod
+    def address_minus_name(cls, address):
+        return {k: v for k, v in six.iteritems(address) if k != AddressComponents.NAME}
 
     @classmethod
     def near_dupe_hashes(cls, address, languages=None,
@@ -108,6 +120,10 @@ class AddressDeduper(object):
             lat = 0.0
             lon = 0.0
             with_latlon = False
+
+        if languages is None:
+            address_minus_name = cls.address_minus_name(address)
+            languages = cls.combined_place_languages(address, address_minus_name)
 
         labels, values = cls.address_labels_and_values(address)
 
@@ -139,7 +155,7 @@ class AddressDeduper(object):
 class Name(object):
     @classmethod
     def content_tokens(cls, name):
-        return [t for t, c in tokenize(normalize_string(name)) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES]
+        return [t for t, c in normalized_tokens(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES]
 
 
 class VenueDeduper(AddressDeduper):
@@ -178,21 +194,23 @@ class VenueDeduper(AddressDeduper):
         if not a1_name_tokens or not a2_name_tokens:
             return None, 0.0
 
-        a1_tfidf_norm = cls.tfidf_vector_normalized(a1_name_tokens, tfidf)
-        a2_tfidf_norm = cls.tfidf_vector_normalized(a2_name_tokens, tfidf)
+        a1_name_tokens, a1_tfidf_norm = zip(*cls.tfidf_vector_normalized(a1_name_tokens, tfidf))
+        a2_name_tokens, a2_tfidf_norm = zip(*cls.tfidf_vector_normalized(a2_name_tokens, tfidf))
 
         return is_name_duplicate_fuzzy(a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=languages,
                                        likely_dupe_threshold=likely_dupe_threshold, needs_review_threshold=needs_review_threshold)
 
     @classmethod
-    def dupe_class_and_sim(cls, a1, a2, tfidf=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
-                           name_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False):
+    def dupe_class_and_sim(cls, a1, a2, tfidf=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+                           needs_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
             return None, 0.0
 
-        languages = cls.combined_place_languages(a1, a2)
+        a1_minus_name = cls.address_minus_name(a1)
+        a2_minus_name = cls.address_minus_name(a2)
+        languages = cls.combined_place_languages(a1, a1_minus_name, a2, a2_minus_name)
 
         same_address = cls.is_address_dupe(a1, a2, languages=languages)
         if not same_address:
@@ -203,14 +221,22 @@ class VenueDeduper(AddressDeduper):
             if not same_unit:
                 return None, 0.0
 
-        exact_same_name = cls.is_exact_name_dupe(a1_name, a2_name, languages=languages)
-        if exact_same_name:
+        name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
+        if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
             return DedupeResponse.classifications.EXACT_DUPE, 1.0
         elif tfidf:
-            dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, tfidf)
-            return cls.string_dupe_class(dupe_class), name_sim
+            name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, tfidf)
+            if name_fuzzy_dupe_class >= name_dupe_class:
+                return cls.string_dupe_class(name_fuzzy_dupe_class), name_sim
 
-        return None, 0.0
+        if name_dupe_class == duplicate_status.LIKELY_DUPLICATE:
+            name_sim = likely_dupe_threshold
+        elif name_dupe_class == duplicate_status.NEEDS_REVIEW:
+            name_sim = needs_review_threshold
+        else:
+            return None, 0.0
+
+        return cls.string_dupe_class(name_dupe_class), name_sim
 
     @classmethod
     def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False):
@@ -218,5 +244,5 @@ class VenueDeduper(AddressDeduper):
         return dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)
 
     @classmethod
-    def is_exact_name_dupe(cls, name1, name2, languages=None):
+    def name_dupe_status(cls, name1, name2, languages=None):
         return is_name_duplicate(name1, name2, languages=languages)
