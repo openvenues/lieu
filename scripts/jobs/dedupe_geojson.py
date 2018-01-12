@@ -3,7 +3,6 @@ from collections import Counter, defaultdict
 
 from lieu.api import DedupeResponse
 from lieu.address import Address
-from lieu.dedupe import NameDeduper
 
 from lieu.spark.dedupe import AddressDeduperSpark, VenueDeduperSpark
 from lieu.spark.utils import IDPairRDD
@@ -89,9 +88,9 @@ class DedupeVenuesJob(MRJob):
         use_postal_code = self.options.use_postal_code
 
         if not self.options.address_only:
-            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
+            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
         else:
-            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, use_latlon=use_latlon, use_city=use_city, use_postal_code=use_postal_code)
+            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
 
         dupes = dupes_with_classes_and_sims.filter(lambda ((uid1, uid2), (classification, sim)): classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)) \
                                            .map(lambda ((uid1, uid2), (classification, sim)): (uid1, True)) \
