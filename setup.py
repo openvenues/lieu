@@ -7,7 +7,7 @@ def main():
         version='1.0',
         install_requires=[
             'six',
-            'postal>=1.1.2',
+            'postal>=1.1.3',
             'leveldb',
             'ujson',
             'mrjob',
