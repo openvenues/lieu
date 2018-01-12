@@ -4,16 +4,15 @@ import re
 import six
 
 from postal.near_dupe import near_dupe_hashes
-from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate
+from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate_fuzzy
 from postal.normalize import normalized_tokens
 from postal.tokenize import tokenize
 from postal.token_types import token_types
 
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.api import DedupeResponse
-from lieu.similarity import ordered_word_count, soft_tfidf_similarity, jaccard_similarity
-from lieu.encoding import safe_encode, safe_decode
-from lieu.floats import isclose
+from lieu.similarity import ordered_word_count
+from lieu.tfidf import TFIDF
 
 whitespace_regex = re.compile('[\s]+')
 
@@ -27,40 +26,97 @@ class AddressDeduper(object):
     with_name = False
 
     @classmethod
-    def is_address_dupe(cls, a1, a2, languages=None):
+    def address_dupe_status(cls, a1, a2, languages=None, fuzzy_street_name=False):
         a1_street = a1.get(AddressComponents.STREET)
         a2_street = a2.get(AddressComponents.STREET)
+
+        if a1_street:
+            a1_street = a1_street.strip()
+        if a2_street:
+            a2_street = a2_street.strip()
 
         a1_house_number = a1.get(AddressComponents.HOUSE_NUMBER)
         a2_house_number = a2.get(AddressComponents.HOUSE_NUMBER)
 
-        if not a1_street or not a2_street or not a1_house_number or not a2_house_number:
-            return None
+        if a1_house_number:
+            a1_house_number = a1_house_number.strip()
+        if a2_house_number:
+            a2_house_number = a2_house_number.strip()
 
-        street_status = is_street_duplicate(a1_street, a2_street, languages=languages)
-        house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
+        if (a1_street and not a2_street) or (a2_street and not a1_street):
+            return duplicate_status.NON_DUPLICATE
 
-        same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
-        same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
+        if (a1_house_number and not a2_house_number) or (a2_house_number and not a1_house_number):
+            return duplicate_status.NON_DUPLICATE
 
-        return same_street and same_house_number
+        have_street = a1_street and a2_street
+        same_street = False
+        street_status = duplicate_status.NON_DUPLICATE
+
+        if have_street:
+            street_status = is_street_duplicate(a1_street, a2_street, languages=languages)
+            same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+            if not same_street and fuzzy_street_name:
+                a1_street_tokens = Name.content_tokens(a1_street)
+                a1_tfidf_norm = TFIDF.normalized_tfidf_vector([1] * len(a1_street_tokens))
+                a2_street_tokens = Name.content_tokens(a2_street)
+                a2_tfidf_norm = TFIDF.normalized_tfidf_vector([1] * len(a2_street_tokens))
+                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_tfidf_norm, a2_street_tokens, a2_tfidf_norm, languages=languages)
+                same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+            if not same_street:
+                return duplicate_status.NON_DUPLICATE
+
+        have_house_number = a1_house_number and a2_house_number
+        same_house_number = False
+        house_number_status = duplicate_status.NON_DUPLICATE
+
+        if have_house_number:
+            house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
+            same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
+            if not same_house_number:
+                return duplicate_status.NON_DUPLICATE
+
+        if not have_house_number and not have_street:
+            return duplicate_status.NON_DUPLICATE
+
+        if have_street and same_street and (same_house_number or not have_house_number):
+            return street_status
+        elif have_house_number and same_house_number:
+            return house_number_status
+        elif have_street and same_street:
+            return street_status
+
+        return duplicate_status.NON_DUPLICATE
+
+    @classmethod
+    def is_address_dupe(cls, a1, a2, languages=None, fuzzy_street_name=False):
+        return cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name) in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
 
     @classmethod
     def is_sub_building_dupe(cls, a1, a2, languages=None):
         a1_unit = a1.get(AddressComponents.UNIT)
         a2_unit = a2.get(AddressComponents.UNIT)
 
-        if a1_unit and a2_unit and is_unit_duplicate(a1_unit, a2_unit, languages=languages) != duplicate_status.EXACT_DUPLICATE:
-            return False
-        elif a1_unit or a2_unit:
-            return False
+        have_unit = a1_unit is not None and a2_unit is not None
+        same_unit = False
 
-        a2_floor = a1.get(AddressComponents.FLOOR)
+        if have_unit:
+            unit_status = is_unit_duplicate(a1_unit, a2_unit, languages=languages)
+            same_unit = unit_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+            if not same_unit:
+                return False
+
+        a1_floor = a1.get(AddressComponents.FLOOR)
         a2_floor = a2.get(AddressComponents.FLOOR)
 
-        if a1_floor and a2_floor and is_floor_duplicate(a1_floor, a2_floor, languages=languages) != duplicate_status.EXACT_DUPLICATE:
-            return False
-        elif a1_floor or a2_floor:
+        have_floor = a1_floor is not None and a2_floor is not None
+        same_floor = False
+
+        if have_floor:
+            floor_status = is_floor_duplicate(a1_floor, a2_floor, languages=languages)
+            same_floor = floor_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+
+        if have_floor and not same_floor:
             return False
 
         return True
@@ -87,6 +143,18 @@ class AddressDeduper(object):
         return languages
 
     @classmethod
+    def address_minus_name(cls, address):
+        return {k: v for k, v in six.iteritems(address) if k != AddressComponents.NAME}
+
+    @classmethod
+    def address_languages(cls, address):
+        addresses = [address]
+        if AddressComponents.NAME in address:
+            addresses.append(cls.address_minus_name(address))
+
+        return cls.combined_place_languages(*addresses)
+
+    @classmethod
     def is_dupe(cls, a1, a2, with_unit=True):
         languages = cls.combined_place_languages(a1, a2)
 
@@ -97,10 +165,6 @@ class AddressDeduper(object):
         string_address = {k: v for k, v in six.iteritems(address) if isinstance(v, six.string_types) and v.strip()}
 
         return string_address.keys(), string_address.values()
-
-    @classmethod
-    def address_minus_name(cls, address):
-        return {k: v for k, v in six.iteritems(address) if k != AddressComponents.NAME}
 
     @classmethod
     def near_dupe_hashes(cls, address, languages=None,
@@ -122,8 +186,7 @@ class AddressDeduper(object):
             with_latlon = False
 
         if languages is None:
-            address_minus_name = cls.address_minus_name(address)
-            languages = cls.combined_place_languages(address, address_minus_name)
+            languages = cls.address_languages(address)
 
         labels, values = cls.address_labels_and_values(address)
 
@@ -187,6 +250,15 @@ class VenueDeduper(AddressDeduper):
         return cls.dupe_class_map.get(dupe_class)
 
     @classmethod
+    def name_dupe_fuzzy(cls, a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+                        needs_review_threshold=DedupeResponse.default_name_review_threshold):
+        if not a1_name_tokens or not a2_name_tokens:
+            return None, 0.0
+
+        return is_name_duplicate_fuzzy(a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=languages,
+                                       likely_dupe_threshold=likely_dupe_threshold, needs_review_threshold=needs_review_threshold)
+
+    @classmethod
     def name_dupe_similarity(cls, a1_name, a2_name, tfidf, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                              needs_review_threshold=DedupeResponse.default_name_review_threshold):
         a1_name_tokens = Name.content_tokens(a1_name)
@@ -194,8 +266,8 @@ class VenueDeduper(AddressDeduper):
         if not a1_name_tokens or not a2_name_tokens:
             return None, 0.0
 
-        a1_name_tokens, a1_tfidf_norm = zip(*cls.tfidf_vector_normalized(a1_name_tokens, tfidf))
-        a2_name_tokens, a2_tfidf_norm = zip(*cls.tfidf_vector_normalized(a2_name_tokens, tfidf))
+        a1_tfidf_norm = cls.tfidf_vector_normalized(a1_name_tokens, tfidf)
+        a2_tfidf_norm = cls.tfidf_vector_normalized(a2_name_tokens, tfidf)
 
         return is_name_duplicate_fuzzy(a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=languages,
                                        likely_dupe_threshold=likely_dupe_threshold, needs_review_threshold=needs_review_threshold)
@@ -208,9 +280,10 @@ class VenueDeduper(AddressDeduper):
         if not a1_name or not a2_name:
             return None, 0.0
 
-        a1_minus_name = cls.address_minus_name(a1)
-        a2_minus_name = cls.address_minus_name(a2)
-        languages = cls.combined_place_languages(a1, a1_minus_name, a2, a2_minus_name)
+        a1_languages = cls.address_languages(a1)
+        a2_languages = cls.address_languages(a2)
+
+        languages = cls.combined_languages(a1_languages, a2_languages)
 
         same_address = cls.is_address_dupe(a1, a2, languages=languages)
         if not same_address:
