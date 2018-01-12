@@ -76,12 +76,12 @@ class TFIDF(object):
         return math.log(term_frequency + 1.0) * (math.log(float(total_docs) / doc_frequency))
 
     def tfidf_vector(self, token_counts):
-        return [(w, self.tfidf_score(term_frequency=c, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N)) for w, c in token_counts.iteritems()]
+        return [self.tfidf_score(term_frequency=c, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N) for w, c in six.iteritems(token_counts)]
 
     @classmethod
     def normalized_tfidf_vector(cls, tfidf_vector):
-        norm = math.sqrt(sum((s ** 2 for w, s in tfidf_vector)))
+        norm = math.sqrt(sum((s ** 2 for s in tfidf_vector)))
 
         if isclose(norm, 0.0):
             return tfidf_vector
-        return [(w, s / norm) for w, s in tfidf_vector]
+        return [s / norm for s in tfidf_vector]
