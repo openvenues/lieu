@@ -6,7 +6,7 @@ from six import operator
 from collections import Counter
 
 from lieu.tfidf import TFIDF
-from lieu.dedupe import NameDeduper
+from lieu.dedupe import Name
 
 
 class TFIDFSpark(object):
@@ -16,7 +16,7 @@ class TFIDFSpark(object):
             docs = docs.zipWithUniqueId()
 
         doc_word_counts = docs.flatMap(lambda (doc, doc_id): [(word, (doc_id, count))
-                                                              for word, count in Counter(NameDeduper.content_tokens(doc)).items()])
+                                                              for word, count in Counter(Name.content_tokens(doc)).items()])
         return doc_word_counts
 
     @classmethod
@@ -69,7 +69,7 @@ class GeoTFIDFSpark(TFIDFSpark):
             doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), doc, doc_id))
 
         doc_word_counts = doc_geohashes.flatMap(lambda (geo, doc, doc_id): [((geo, word), (doc_id, count))
-                                                                            for word, count in Counter(NameDeduper.content_tokens(doc)).items()])
+                                                                            for word, count in Counter(Name.content_tokens(doc)).items()])
         return doc_word_counts
 
     @classmethod
