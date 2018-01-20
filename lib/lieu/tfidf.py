@@ -3,27 +3,29 @@ import math
 import six
 import ujson as json
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from lieu.encoding import safe_encode, safe_decode
 from lieu.floats import isclose
+from lieu.word_index import WordIndex
 
 
-class TFIDF(object):
+class TFIDF(WordIndex):
     finalized = False
 
     term_key_prefix = 't:'
     doc_count_key = 'N'
 
-    def __init__(self):
+    def __init__(self, min_count=1):
         self.idf_counts = defaultdict(int)
         self.N = 0
+        self.min_count = min_count
 
     def update(self, doc):
         if self.finalized or not doc:
             return
 
-        for feature, count in six.iteritems(doc):
+        for feature, count in six.iteritems(Counter(doc)):
             self.idf_counts[feature] += 1
 
         self.N += 1
@@ -68,6 +70,12 @@ class TFIDF(object):
     def prune(self, min_count):
         self.idf_counts = {k: count for k, count in self.idf_counts.iteritems() if count >= min_count}
 
+    def finalize(self):
+        if self.min_count > 1:
+            self.prune(self.min_count)
+        self.finalized = True
+        return self
+
     def corpus_frequency(self, key):
         return self.idf_counts.get(key, 0)
 
@@ -75,13 +83,6 @@ class TFIDF(object):
     def tfidf_score(cls, term_frequency, doc_frequency, total_docs):
         return math.log(term_frequency + 1.0) * (math.log(float(total_docs) / doc_frequency))
 
-    def tfidf_vector(self, token_counts):
+    def vector(self, tokens):
+        token_counts = Counter(tokens)
         return [self.tfidf_score(term_frequency=c, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N) for w, c in six.iteritems(token_counts)]
-
-    @classmethod
-    def normalized_tfidf_vector(cls, tfidf_vector):
-        norm = math.sqrt(sum((s ** 2 for s in tfidf_vector)))
-
-        if isclose(norm, 0.0):
-            return tfidf_vector
-        return [s / norm for s in tfidf_vector]
