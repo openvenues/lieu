@@ -12,7 +12,7 @@ from postal.token_types import token_types
 from lieu.address import AddressComponents, VenueDetails, Coordinates
 from lieu.api import DedupeResponse
 from lieu.similarity import ordered_word_count
-from lieu.tfidf import TFIDF
+from lieu.word_index import WordIndex
 
 whitespace_regex = re.compile('[\s]+')
 
@@ -58,10 +58,10 @@ class AddressDeduper(object):
             same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
             if not same_street and fuzzy_street_name:
                 a1_street_tokens = Name.content_tokens(a1_street)
-                a1_tfidf_norm = TFIDF.normalized_tfidf_vector([1] * len(a1_street_tokens))
+                a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
                 a2_street_tokens = Name.content_tokens(a2_street)
-                a2_tfidf_norm = TFIDF.normalized_tfidf_vector([1] * len(a2_street_tokens))
-                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_tfidf_norm, a2_street_tokens, a2_tfidf_norm, languages=languages)
+                a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
+                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
                 same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
             if not same_street:
                 return duplicate_status.NON_DUPLICATE
@@ -218,7 +218,7 @@ class AddressDeduper(object):
 class Name(object):
     @classmethod
     def content_tokens(cls, name):
-        return [t for t, c in normalized_tokens(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES]
+        return [t for t, c in normalized_tokens(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES or c in (token_types.AMPERSAND, token_types.POUND)]
 
 
 class VenueDeduper(AddressDeduper):
@@ -230,14 +230,9 @@ class VenueDeduper(AddressDeduper):
     with_name = True
 
     @classmethod
-    def tfidf_vector(cls, tokens, tfidf_index):
-        token_counts = ordered_word_count(tokens)
-        return tfidf_index.tfidf_vector(token_counts)
-
-    @classmethod
-    def tfidf_vector_normalized(cls, tokens, tfidf_index):
-        tfidf = cls.tfidf_vector(tokens, tfidf_index)
-        return tfidf_index.normalized_tfidf_vector(tfidf)
+    def word_scores_normalized(cls, tokens, word_index):
+        vector = word_index.vector(tokens)
+        return word_index.normalized_vector(vector)
 
     dupe_class_map = {
         duplicate_status.LIKELY_DUPLICATE: DedupeResponse.classifications.LIKELY_DUPE,
@@ -250,30 +245,30 @@ class VenueDeduper(AddressDeduper):
         return cls.dupe_class_map.get(dupe_class)
 
     @classmethod
-    def name_dupe_fuzzy(cls, a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+    def name_dupe_fuzzy(cls, a1_name_tokens, a1_scores_norm, a2_name_tokens, a2_scores_norm, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                         needs_review_threshold=DedupeResponse.default_name_review_threshold):
         if not a1_name_tokens or not a2_name_tokens:
             return None, 0.0
 
-        return is_name_duplicate_fuzzy(a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=languages,
+        return is_name_duplicate_fuzzy(a1_name_tokens, a1_scores_norm, a2_name_tokens, a2_scores_norm, languages=languages,
                                        likely_dupe_threshold=likely_dupe_threshold, needs_review_threshold=needs_review_threshold)
 
     @classmethod
-    def name_dupe_similarity(cls, a1_name, a2_name, tfidf, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+    def name_dupe_similarity(cls, a1_name, a2_name, word_index, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                              needs_review_threshold=DedupeResponse.default_name_review_threshold):
         a1_name_tokens = Name.content_tokens(a1_name)
         a2_name_tokens = Name.content_tokens(a2_name)
         if not a1_name_tokens or not a2_name_tokens:
             return None, 0.0
 
-        a1_tfidf_norm = cls.tfidf_vector_normalized(a1_name_tokens, tfidf)
-        a2_tfidf_norm = cls.tfidf_vector_normalized(a2_name_tokens, tfidf)
+        a1_scores_norm = cls.word_scores_normalized(a1_name_tokens, word_index)
+        a2_scores_norm = cls.word_scores_normalized(a2_name_tokens, word_index)
 
-        return is_name_duplicate_fuzzy(a1_name_tokens, a1_tfidf_norm, a2_name_tokens, a2_tfidf_norm, languages=languages,
+        return is_name_duplicate_fuzzy(a1_name_tokens, a1_scores_norm, a2_name_tokens, a2_scores_norm, languages=languages,
                                        likely_dupe_threshold=likely_dupe_threshold, needs_review_threshold=needs_review_threshold)
 
     @classmethod
-    def dupe_class_and_sim(cls, a1, a2, tfidf=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+    def dupe_class_and_sim(cls, a1, a2, word_index=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                            needs_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
@@ -297,8 +292,8 @@ class VenueDeduper(AddressDeduper):
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
         if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
             return DedupeResponse.classifications.EXACT_DUPE, 1.0
-        elif tfidf:
-            name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, tfidf)
+        elif word_index:
+            name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index)
             if name_fuzzy_dupe_class >= name_dupe_class:
                 return cls.string_dupe_class(name_fuzzy_dupe_class), name_sim
 
@@ -312,8 +307,8 @@ class VenueDeduper(AddressDeduper):
         return cls.string_dupe_class(name_dupe_class), name_sim
 
     @classmethod
-    def is_dupe(cls, a1, a2, tfidf=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False):
-        dupe_class, sim = cls.dupe_class_and_sim(a1, a2, tfidf=tfidf, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit)
+    def is_dupe(cls, a1, a2, index=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False):
+        dupe_class, sim = cls.dupe_class_and_sim(a1, a2, index=index, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit)
         return dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)
 
     @classmethod
