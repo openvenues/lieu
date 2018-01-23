@@ -13,6 +13,8 @@ from lieu.word_index import WordIndex
 class TFIDF(WordIndex):
     finalized = False
 
+    count_tokens = True
+
     term_key_prefix = 't:'
     doc_count_key = 'N'
 
@@ -84,5 +86,13 @@ class TFIDF(WordIndex):
         return math.log(term_frequency + 1.0) * (math.log(float(total_docs) / doc_frequency))
 
     def vector(self, tokens):
-        token_counts = Counter(tokens)
-        return [self.tfidf_score(term_frequency=c, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N) for w, c in six.iteritems(token_counts)]
+        return [self.tfidf_score(term_frequency=1.0, doc_frequency=self.idf_counts.get(w, 1.0), total_docs=self.N) for w in tokens]
+
+    @classmethod
+    def normalized_vector(cls, vector):
+        n = math.sqrt(sum((s ** 2 for s in vector)))
+
+        if isclose(n, 0.0):
+            n = len(vector)
+            return [1. / n] * n
+        return [s / n for s in vector]

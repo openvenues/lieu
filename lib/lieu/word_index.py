@@ -6,14 +6,27 @@ class WordIndex(object):
     TFIDF = 'tfidf'
     INFORMATION_GAIN = 'info_gain'
 
+    count_tokens = False
+
     def vector(self, tokens):
         raise NotImplementedError('Children must implement')
 
     @classmethod
-    def normalized_vector(cls, vector):
-        norm = math.sqrt(sum((s ** 2 for s in vector)))
+    def normalized_vector_l1(cls, vector):
+        n = float(sum(vector))
 
-        if isclose(norm, 0.0):
+        if isclose(n, 0.0):
             n = len(vector)
             return [1. / n] * n
-        return [s / norm for s in vector]
+        return [s / n for s in vector]
+
+    @classmethod
+    def normalized_vector_l2(cls, vector):
+        n = math.sqrt(sum((s ** 2 for s in vector)))
+
+        if isclose(n, 0.0):
+            n = len(vector)
+            return [1. / n] * n
+        return [s / n for s in vector]
+
+    normalized_vector = normalized_vector_l2
