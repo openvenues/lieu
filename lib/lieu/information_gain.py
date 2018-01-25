@@ -66,8 +66,8 @@ class InformationGainBuilder(object):
             self.words.append(word)
         return i
 
-    def update(self, doc):
-        words = set(doc)
+    def update(self, tokens):
+        words = set(tokens)
         word_ids = set([self.word_id(w) for w in words])
         for i in word_ids:
             self.marginals[i] += 1
@@ -91,7 +91,9 @@ class InformationGainBuilder(object):
                 info = math.log(p_xy / p_x, 2) * p_xy
                 sum_info += info
             word = self.words[y]
-            info_gain[word] = sum_info
+            info_gain[word] = max(sum_info, 0.0)
+
+        info_gain.update({word: math.log(1.0 / p_marginals[word_id], 2) for word, word_id in six.iteritems(self.word_ids) if word not in info_gain})
 
         del self.cooccurrences
         del self.marginals
