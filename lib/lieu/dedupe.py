@@ -306,7 +306,7 @@ class VenueDeduper(AddressDeduper):
 
     @classmethod
     def dupe_class_and_sim(cls, a1, a2, word_index=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
-                           needs_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False, fuzzy_street_name=False):
+                           needs_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False, with_phone_number=True, fuzzy_street_name=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
@@ -326,8 +326,8 @@ class VenueDeduper(AddressDeduper):
             if not same_unit:
                 return None, 0.0
 
-        have_phone_number = PhoneNumberDeduper.have_phone_numbers(a1, a2)
-        same_phone_number = PhoneNumberDeduper.is_phone_number_dupe(a1, a2)
+        have_phone_number = with_phone_number and PhoneNumberDeduper.have_phone_numbers(a1, a2)
+        same_phone_number = with_phone_number and PhoneNumberDeduper.is_phone_number_dupe(a1, a2)
         different_phone_number = have_phone_number and not same_phone_number
 
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
