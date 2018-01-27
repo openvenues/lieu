@@ -48,11 +48,12 @@ class TFIDFSpark(object):
 
 
 class GeoTFIDFSpark(TFIDFSpark):
-    DEFAULT_GEOHASH_PRECISION = 4
+    DEFAULT_GEOHASH_PRECISION = 3
 
     @classmethod
-    def doc_geohash(cls, lat, lon, geohash_precision=DEFAULT_GEOHASH_PRECISION):
-        return geohash.encode(lat, lon)[:geohash_precision]
+    def doc_geohashes(cls, lat, lon, geohash_precision=DEFAULT_GEOHASH_PRECISION):
+        gh = geohash.encode(lat, lon)[:geohash_precision]
+        return [gh] + geohash.neighbors(gh)
 
     @classmethod
     def doc_word_counts(cls, docs, geo_aliases=None, has_id=False, geohash_precision=DEFAULT_GEOHASH_PRECISION):
@@ -62,11 +63,11 @@ class GeoTFIDFSpark(TFIDFSpark):
         docs = docs.filter(lambda ((doc, lat, lon), doc_id): lat is not None and lon is not None)
 
         if geo_aliases:
-            doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), (doc, doc_id))) \
+            doc_geohashes = docs.flatMap(lambda ((doc, lat, lon), doc_id): [(gh, (doc, doc_id)) for gh in cls.doc_geohashes(lat, lon)]) \
                                 .leftOuterJoin(geo_aliases) \
                                 .map(lambda (geo, ((doc, doc_id), geo_alias)): (geo_alias or geo, doc, doc_id))
         else:
-            doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), doc, doc_id))
+            doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): [(gh, doc, doc_id) for gh in cls.doc_geohashes(lat, lon)])
 
         doc_word_counts = doc_geohashes.flatMap(lambda (geo, doc, doc_id): [((geo, word), (doc_id, count))
                                                                             for word, count in Counter(Name.content_tokens(doc)).items()])
@@ -90,7 +91,7 @@ class GeoTFIDFSpark(TFIDFSpark):
 
         docs = docs.filter(lambda ((doc, lat, lon), doc_id): lat is not None and lon is not None)
 
-        total_docs_by_geo = docs.map(lambda ((doc, lat, lon), doc_id): (cls.doc_geohash(lat, lon), 1)) \
+        total_docs_by_geo = docs.flatMap(lambda ((doc, lat, lon), doc_id): [(gh, 1) for gh in cls.doc_geohashes(lat, lon)]) \
                                 .reduceByKey(lambda x, y: x + y)
         return total_docs_by_geo
 
