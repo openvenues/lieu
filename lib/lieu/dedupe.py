@@ -3,6 +3,8 @@ import geohash
 import re
 import six
 
+import phonenumbers
+
 from postal.near_dupe import near_dupe_hashes
 from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate_fuzzy
 from postal.normalize import normalized_tokens
@@ -91,6 +93,12 @@ class AddressDeduper(object):
     @classmethod
     def is_address_dupe(cls, a1, a2, languages=None, fuzzy_street_name=False):
         return cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name) in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+
+    @classmethod
+    def one_address_is_missing_field(cls, field, a1, a2):
+        a1_field = a1.get(field, u'').strip()
+        a2_field = a2.get(field, u'').strip()
+        return bool(a1_field) != bool(a2_field)
 
     @classmethod
     def is_sub_building_dupe(cls, a1, a2, languages=None):
@@ -221,6 +229,35 @@ class Name(object):
         return [t for t, c in normalized_tokens(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES or c in (token_types.AMPERSAND, token_types.POUND)]
 
 
+class PhoneNumberDeduper(object):
+    @classmethod
+    def have_phone_numbers(cls, a1, a2):
+        num1 = a1.get(VenueDetails.PHONE, '').strip()
+        num2 = a2.get(VenueDetails.PHONE, '').strip()
+        return bool(num1) and bool(num2)
+
+    @classmethod
+    def is_phone_number_dupe(cls, a1, a2):
+        num1 = a1.get(VenueDetails.PHONE)
+        num2 = a2.get(VenueDetails.PHONE)
+
+        country_code1 = a1.get(AddressComponents.COUNTRY)
+        country_code2 = a2.get(AddressComponents.COUNTRY)
+
+        if country_code1 and country_code2 and country_code1 != country_code2:
+            return False
+
+        country_code = country_code1 or country_code2
+
+        try:
+            p1 = phonenumbers.parse(num1, region=country_code)
+            p2 = phonenumbers.parse(num2, region=country_code)
+        except phonenumbers.NumberParseException:
+            return False
+
+        return p1.country_code == p2.country_code and p1.national_number == p2.national_number
+
+
 class VenueDeduper(AddressDeduper):
     DEFAULT_GEOHASH_PRECISION = 6
 
@@ -289,11 +326,21 @@ class VenueDeduper(AddressDeduper):
             if not same_unit:
                 return None, 0.0
 
+        have_phone_number = PhoneNumberDeduper.have_phone_numbers(a1, a2)
+        same_phone_number = PhoneNumberDeduper.is_phone_number_dupe(a1, a2)
+        different_phone_number = have_phone_number and not same_phone_number
+
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
         if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
             return DedupeResponse.classifications.EXACT_DUPE, 1.0
         elif word_index:
             name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
+
+            if name_fuzzy_dupe_class == duplicate_status.NEEDS_REVIEW and same_phone_number:
+                name_fuzzy_dupe_class = duplicate_status.LIKELY_DUPLICATE
+            elif name_fuzzy_dupe_class == duplicate_status.LIKELY_DUPLICATE and different_phone_number:
+                name_fuzzy_dupe_class = duplicate_status.NEEDS_REVIEW
+
             if name_fuzzy_dupe_class >= name_dupe_class:
                 return cls.string_dupe_class(name_fuzzy_dupe_class), name_sim
 
