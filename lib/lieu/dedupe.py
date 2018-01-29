@@ -11,7 +11,7 @@ from postal.normalize import normalized_tokens
 from postal.tokenize import tokenize
 from postal.token_types import token_types
 
-from lieu.address import AddressComponents, VenueDetails, Coordinates
+from lieu.address import AddressComponents, EntityDetails, Coordinates
 from lieu.api import DedupeResponse
 from lieu.similarity import ordered_word_count
 from lieu.word_index import WordIndex
@@ -232,14 +232,14 @@ class Name(object):
 class PhoneNumberDeduper(object):
     @classmethod
     def have_phone_numbers(cls, a1, a2):
-        num1 = a1.get(VenueDetails.PHONE, '').strip()
-        num2 = a2.get(VenueDetails.PHONE, '').strip()
+        num1 = a1.get(EntityDetails.PHONE, u'').strip()
+        num2 = a2.get(EntityDetails.PHONE, u'').strip()
         return bool(num1) and bool(num2)
 
     @classmethod
     def is_phone_number_dupe(cls, a1, a2):
-        num1 = a1.get(VenueDetails.PHONE)
-        num2 = a2.get(VenueDetails.PHONE)
+        num1 = a1.get(EntityDetails.PHONE)
+        num2 = a2.get(EntityDetails.PHONE)
 
         country_code1 = a1.get(AddressComponents.COUNTRY)
         country_code2 = a2.get(AddressComponents.COUNTRY)
@@ -258,7 +258,7 @@ class PhoneNumberDeduper(object):
         return p1.country_code == p2.country_code and p1.national_number == p2.national_number
 
 
-class VenueDeduper(AddressDeduper):
+class NameAddressDeduper(AddressDeduper):
     DEFAULT_GEOHASH_PRECISION = 6
 
     address_only_keys = False
