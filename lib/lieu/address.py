@@ -27,9 +27,13 @@ class Coordinates:
     LONGITUDE = 'lon'
 
 
-class VenueDetails:
+class EntityDetails:
     PHONE = 'phone'
     WEBSITE = 'website'
+    EMAIL = 'email'
+    FACEBOOK = 'facebook'
+    TWITTER = 'twitter'
+    INSTAGRAM = 'instagram'
 
 
 class Aliases(object):
@@ -149,13 +153,15 @@ class Address(object):
             ('world_region', AddressComponents.WORLD_REGION),
             ('addr:world_region', AddressComponents.WORLD_REGION),
             ('is_in:world_region', AddressComponents.WORLD_REGION),
-            ('phone', VenueDetails.PHONE),
-            ('telephone', VenueDetails.PHONE),
-            ('sg:phone', VenueDetails.PHONE),
-            ('contact:phone', VenueDetails.PHONE),
-            ('sg:website', VenueDetails.WEBSITE),
-            ('website', VenueDetails.WEBSITE),
-            ('contact:website', VenueDetails.WEBSITE),
+            ('phone', EntityDetails.PHONE),
+            ('telephone', EntityDetails.PHONE),
+            ('sg:phone', EntityDetails.PHONE),
+            ('contact:phone', EntityDetails.PHONE),
+            ('sg:website', EntityDetails.WEBSITE),
+            ('website', EntityDetails.WEBSITE),
+            ('contact:website', EntityDetails.WEBSITE),
+            ('email', EntityDetails.EMAIL),
+            ('contact:email', EntityDetails.EMAIL),
         ])
     )
 
