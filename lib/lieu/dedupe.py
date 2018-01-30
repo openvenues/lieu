@@ -182,7 +182,7 @@ class AddressDeduper(object):
                          with_small_containing_boundaries=False,
                          with_postal_code=False,
                          with_latlon=True,
-                         geohash_precision=DEFAULT_GEOHASH_PRECISION,
+                         geohash_precision=None,
                          name_and_address_keys=None,
                          name_only_keys=None,
                          address_only_keys=None):
@@ -192,6 +192,9 @@ class AddressDeduper(object):
             lat = 0.0
             lon = 0.0
             with_latlon = False
+
+        if geohash_precision is None:
+            geohash_precision = cls.DEFAULT_GEOHASH_PRECISION
 
         if languages is None:
             languages = cls.address_languages(address)
@@ -256,6 +259,19 @@ class PhoneNumberDeduper(object):
             return False
 
         return p1.country_code == p2.country_code and p1.national_number == p2.national_number
+
+    @classmethod
+    def revised_dupe_class(cls, dupe_class, a1, a2):
+        have_phone_number = cls.have_phone_numbers(a1, a2)
+        same_phone_number = cls.is_phone_number_dupe(a1, a2)
+        different_phone_number = have_phone_number and not same_phone_number
+
+        if dupe_class == duplicate_status.NEEDS_REVIEW and same_phone_number:
+            dupe_class = duplicate_status.LIKELY_DUPLICATE
+        elif dupe_class == duplicate_status.LIKELY_DUPLICATE and different_phone_number:
+            dupe_class = duplicate_status.NEEDS_REVIEW
+
+        return dupe_class
 
 
 class NameAddressDeduper(AddressDeduper):
@@ -326,21 +342,14 @@ class NameAddressDeduper(AddressDeduper):
             if not same_unit:
                 return None, 0.0
 
-        have_phone_number = with_phone_number and PhoneNumberDeduper.have_phone_numbers(a1, a2)
-        same_phone_number = with_phone_number and PhoneNumberDeduper.is_phone_number_dupe(a1, a2)
-        different_phone_number = have_phone_number and not same_phone_number
-
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
         if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
             return DedupeResponse.classifications.EXACT_DUPE, 1.0
         elif word_index:
             name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
 
-            if name_fuzzy_dupe_class == duplicate_status.NEEDS_REVIEW and same_phone_number:
-                name_fuzzy_dupe_class = duplicate_status.LIKELY_DUPLICATE
-            elif name_fuzzy_dupe_class == duplicate_status.LIKELY_DUPLICATE and different_phone_number:
-                name_fuzzy_dupe_class = duplicate_status.NEEDS_REVIEW
-
+            if with_phone_number:
+                name_fuzzy_dupe_class = PhoneNumberDeduper.revised_dupe_class(name_fuzzy_dupe_class, a1, a2)
             if name_fuzzy_dupe_class >= name_dupe_class:
                 return cls.string_dupe_class(name_fuzzy_dupe_class), name_sim
 
