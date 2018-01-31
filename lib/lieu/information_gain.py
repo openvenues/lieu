@@ -47,8 +47,6 @@ class InformationGain(WordIndex):
     def vector(self, tokens):
         return [self.info_gain.get(w, 0.0) for w in tokens]
 
-    normalized_vector = WordIndex.normalized_vector_l1
-
 
 class InformationGainBuilder(object):
     def __init__(self):
