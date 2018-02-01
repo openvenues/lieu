@@ -3,6 +3,7 @@
 import argparse
 import leveldb
 import os
+import six
 import subprocess
 import uuid
 
@@ -14,13 +15,12 @@ from collections import Counter, defaultdict
 
 from lieu.address import Address, AddressComponents
 from lieu.api import DedupeResponse
-from lieu.dedupe import VenueDeduper, AddressDeduper, Name
+from lieu.dedupe import NameAddressDeduper, AddressDeduper, Name
 from lieu.encoding import safe_encode, safe_decode
+from lieu.information_gain import InformationGainBuilder
 from lieu.tfidf import TFIDF
 from lieu.input import GeoJSONParser, GeoJSONLineParser
-
-EXACT_DUPE = 'exact_dupe'
-LIKELY_DUPE = 'likely_dupe'
+from lieu.word_index import WordIndex
 
 
 def open_geojson_file(filename):
@@ -34,20 +34,40 @@ def open_geojson_file(filename):
     return f
 
 
-def dupe_response(guid, value, dupe_pairs, guids_db):
+def db_key(feature_id):
+    return six.text_type(feature_id).zfill(15)
+
+
+def value_guid(value):
+    return value['properties'].get(DedupeResponse.guid_key)
+
+
+def id_features(filenames):
+    feature_id = 0
+    for filename in filenames:
+        f = open_geojson_file(filename)
+
+        for feature in f:
+            yield feature_id, feature
+            feature_id += 1
+
+
+def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
     value = json.loads(value)
-    is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_guid, classification, sim in dupe_pairs.get(guid, ())))
+    is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_id, classification, sim in dupe_pairs.get(feature_id, ())))
     if not is_dupe:
+        guid = value_guid(value)
         DedupeResponse.add_guid(value, guid)
     response = DedupeResponse.base_response(value, is_dupe)
 
-    if guid in dupe_pairs:
-        for other_guid, classification, sim in dupe_pairs[guid]:
-            other_value = json.loads(guids_db.Get(other_guid))
+    if feature_id in dupe_pairs:
+        for other_id, classification, sim in dupe_pairs[feature_id]:
+            other_value = json.loads(features_db.Get(db_key(other_id)))
 
-            is_canonical = other_guid not in dupes
+            is_canonical = other_id not in dupes
 
             if is_canonical:
+                other_guid = value_guid(other_value)
                 DedupeResponse.add_guid(other_value, other_guid)
             DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
     return response
@@ -56,7 +76,7 @@ def dupe_response(guid, value, dupe_pairs, guids_db):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('files', nargs='*')
+    parser.add_argument('files', nargs='+')
 
     parser.add_argument('--address-only',
                         action='store_true',
@@ -88,13 +108,29 @@ if __name__ == '__main__':
                         default=False,
                         help='Use the postcode as a geo qualifier (only for single-country data sets or cases where postcode is unambiguous)')
 
+    parser.add_argument('--no-fuzzy-street-names', '-z',
+                        dest='fuzzy_street_names',
+                        action='store_false',
+                        default=True,
+                        help='Do not use fuzzy street name comparison for minor misspellings, etc.'
+                        )
+
     parser.add_argument('-output-dir', '-o',
                         default='deduped',
                         help='Output directory')
 
-    parser.add_argument('--guids-db-name', '-g',
-                        default='guids_db',
-                        help='Path to database to store guids')
+    parser.add_argument('--features-db-name', '-b',
+                        default='features_db',
+                        help='Path to database to store features for lookup')
+
+    parser.add_argument('--index-type', '-y',
+                        choices=[WordIndex.TFIDF, WordIndex.INFORMATION_GAIN],
+                        default=WordIndex.INFORMATION_GAIN,
+                        help='Model to use for word relevance')
+
+    parser.add_argument('--info-gain-index', '-i',
+                        default='info_gain.index',
+                        help='Information gain index file')
 
     parser.add_argument('--tfidf-index', '-d',
                         default='tfidf.index',
@@ -118,10 +154,16 @@ if __name__ == '__main__':
                         default=DedupeResponse.default_name_review_threshold,
                         help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
-    parser.add_argument('--with-unit',
-                        action='store_true',
-                        default=False,
-                        help='Whether to include units in deduplication')
+    parser.add_argument('--name-missing-unit-review-threshold', '-u',
+                        type=float,
+                        default=DedupeResponse.default_name_review_threshold,
+                        help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
+
+    parser.add_argument('--no-unit',
+                        dest='with_unit',
+                        action='store_false',
+                        default=True,
+                        help='Do not include units in deduplication (only compared if both addresses have unit. Likely dupes where one address has unit info are demoted to needs review)')
 
     args = parser.parse_args()
 
@@ -129,31 +171,36 @@ if __name__ == '__main__':
     with_unit = args.with_unit
     name_dupe_threshold = args.name_dupe_threshold
     name_review_threshold = args.name_review_threshold
+    fuzzy_street_names = args.fuzzy_street_names
 
     use_latlon = not args.no_latlon
     use_city = args.use_city
     use_postal_code = args.use_postal_code
     use_containing = args.use_small_containing
 
-    tfidf_filename = os.path.join(args.output_dir, args.tfidf_index)
-
-    tfidf_index = None
+    word_index_builder = None
+    word_index_filename = None
     if not address_only:
-        tfidf_index = TFIDF()
+        if args.index_type == WordIndex.INFORMATION_GAIN:
+            word_index_builder = InformationGainBuilder()
+            word_index_filename = os.path.join(args.output_dir, args.info_gain_index)
+        elif args.index_type == WordIndex.TFIDF:
+            word_index_builder = TFIDF()
+            word_index_filename = os.path.join(args.output_dir, args.tfidf_index)
 
-    print('TF-IDF index file: {}'.format(tfidf_filename))
+    print('Word index file: {}'.format(word_index_filename))
 
     temp_filename = os.path.join(args.output_dir, args.temp_filename)
     map_file = open(temp_filename, 'w')
 
     print('Near-dupe tempfile: {}'.format(temp_filename))
 
-    guids_db_path = os.path.join(args.output_dir, args.guids_db_name)
-    leveldb.DestroyDB(guids_db_path)
+    features_db_path = os.path.join(args.output_dir, args.features_db_name)
+    leveldb.DestroyDB(features_db_path)
 
-    print('Guids DB: {}'.format(guids_db_path))
+    print('Guids DB: {}'.format(features_db_path))
 
-    guids_db = leveldb.LevelDB(guids_db_path)
+    features_db = leveldb.LevelDB(features_db_path)
 
     out_path = os.path.join(args.output_dir, args.output_filename)
     out_file = open(out_path, 'w')
@@ -161,38 +208,45 @@ if __name__ == '__main__':
     print('Output filename: {}'.format(out_path))
     print('-----------------------------')
 
-    print('* Assigning IDs, creating near-dupe hashes{}'.format(' + IDF index' if not address_only else ''))
+    print('* Assigning IDs, creating near-dupe hashes{}'.format(' + word index (using {})'.format(args.index_type) if not address_only else ''))
 
-    num_features = 0
-    for filename in args.files:
-        f = open_geojson_file(filename)
+    feature_id = 0
 
-        for i, feature in enumerate(f):
-            DedupeResponse.add_random_guid(feature)
-            guid = feature['properties'][DedupeResponse.guid_key]
-            DedupeResponse.add_guid(feature, guid)
-            guids_db.Put(guid, json.dumps(feature))
+    batch = leveldb.WriteBatch()
+    for feature_id, feature in id_features(args.files):
+        DedupeResponse.add_random_guid(feature)
+        batch.Put(db_key(feature_id), json.dumps(feature))
+        if feature_id % 1000 == 0 and feature_id > 0:
+            features_db.Write(batch, sync=True)
+            batch = leveldb.WriteBatch()
 
-            address = Address.from_geojson(feature)
+        address = Address.from_geojson(feature)
 
-            if not address_only:
-                name = address.get(AddressComponents.NAME)
-                if not name:
-                    continue
-                tfidf_index.update(Counter(Name.content_tokens(name)))
-                hashes = VenueDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
-            else:
-                hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+        if not address_only:
+            name = address.get(AddressComponents.NAME)
+            if not name:
+                continue
+            word_index_builder.update(Name.content_tokens(name))
+            hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+        else:
+            hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
 
-            for h in hashes:
-                map_file.write(safe_encode(u'{}\t{}\n'.format(h, guid)))
+        for h in hashes:
+            map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
 
-            num_features += 1
+    features_db.Write(batch, sync=True)
+
+    num_features = feature_id
+
+    features_db.CompactRange('\x00', '\xff')
 
     map_file.close()
 
+    word_index = None
+
     if not address_only:
-        tfidf_index.save(tfidf_filename)
+        word_index = word_index_builder.finalize()
+        word_index.save(word_index_filename)
 
     print('* Sorting temporary near-dupe file by hash')
 
@@ -209,10 +263,11 @@ if __name__ == '__main__':
 
     dupe_pairs = defaultdict(set)
     dupes = set()
-    num_comparisons = 0
 
     kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
                                       key=operator.itemgetter(0)))
+
+    possible_dupe_pairs = set()
 
     while True:
         try:
@@ -222,33 +277,37 @@ if __name__ == '__main__':
             num_candidate_dupes = len(candidate_dupes)
 
             if num_candidate_dupes > 1:
-                candidate_features = [(candidate_guid, json.loads(guids_db.Get(candidate_guid))) for candidate_guid in candidate_dupes]
-
-                for ((canonical_guid, canonical_feature), (other_guid, other_feature)) in itertools.combinations(candidate_features, 2):
-                    canonical = Address.from_geojson(canonical_feature)
-                    other = Address.from_geojson(other_feature)
-
-                    if not address_only:
-                        dupe_class, sim = VenueDeduper.dupe_class_and_sim(canonical, other, tfidf=tfidf_index,
-                                                                          likely_dupe_threshold=name_dupe_threshold,
-                                                                          needs_review_threshold=name_review_threshold,
-                                                                          with_unit=with_unit)
-
-                        if dupe_class is not None:
-                            dupe_pairs[other_guid].add((canonical_guid, dupe_class, sim))
-
-                            if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
-                                dupes.add(other_guid)
-                    elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit):
-                        dupe_pairs[other_guid].add((canonical_guid, DedupeResponse.classifications.EXACT_DUPE, 1.0))
-                        dupes.add(other_guid)
-
-                    num_comparisons += 1
+                for (canonical_id, other_id) in itertools.combinations(candidate_dupes, 2):
+                    possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
 
         except StopIteration:
             break
 
-    print('  did {} out of {} possible comparisons'.format(num_comparisons, (num_features * (num_features - 1)) / 2 ))
+    print('  checking {} candidate pairs out of {} possible comparisons'.format(len(possible_dupe_pairs), (num_features * (num_features - 1)) / 2 ))
+
+    for canonical_id, other_id in possible_dupe_pairs:
+        canonical_feature = json.loads(features_db.Get(db_key(canonical_id)))
+        other_feature = json.loads(features_db.Get(db_key(other_id)))
+
+        canonical = Address.from_geojson(canonical_feature)
+        other = Address.from_geojson(other_feature)
+
+        if not address_only:
+            dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
+                                                                    likely_dupe_threshold=name_dupe_threshold,
+                                                                    needs_review_threshold=name_review_threshold,
+                                                                    with_unit=with_unit,
+                                                                    fuzzy_street_name=fuzzy_street_names)
+
+            if dupe_class is not None:
+                dupe_pairs[other_id].add((canonical_id, dupe_class, sim))
+
+                if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
+                    dupes.add(other_id)
+        elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit, fuzzy_street_name=fuzzy_street_names):
+            dupe_pairs[other_id].add((canonical_id, DedupeResponse.classifications.EXACT_DUPE, 1.0))
+            dupes.add(other_id)
+
     os.unlink(sorted_temp_filename)
 
     print('* Building output file')
@@ -262,13 +321,14 @@ if __name__ == '__main__':
         explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)
 
     if args.dupes_only:
-        for guid in dupe_pairs:
-            value = guids_db.Get(guid)
-            response = dupe_response(guid, value, dupe_pairs, guids_db)
+        for feature_id in dupe_pairs:
+            value = features_db.Get(db_key(feature_id))
+            response = dupe_response(feature_id, value, dupe_pairs, features_db, dupes)
             out_file.write(json.dumps(response) + '\n')
     else:
-        for guid, value in guids_db.RangeIter():
-            response = dupe_response(guid, value, dupe_pairs, guids_db)
+        for feature_id, value in features_db.RangeIter():
+            feature_id = feature_id.lstrip('0')
+            response = dupe_response(feature_id, value, dupe_pairs, features_db, dupes)
             out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
