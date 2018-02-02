@@ -9,7 +9,7 @@ class DedupeResponse(object):
         EXACT_DUPE = 'exact_dupe'
 
     class deduping_types:
-        VENUE = 'venue'
+        NAME_ADDRESS = 'name+address'
         ADDRESS = 'address'
 
     guid_key = 'lieu:guid'
@@ -46,10 +46,10 @@ class DedupeResponse(object):
         }
 
     @classmethod
-    def explain_venue_dupe(cls, name_likely_dupe_threshold=default_name_dupe_threshold,
-                           name_needs_review_threshold=default_name_review_threshold, with_unit=False):
+    def explain_name_address_dupe(cls, name_likely_dupe_threshold=default_name_dupe_threshold,
+                                  name_needs_review_threshold=default_name_review_threshold, with_unit=False):
         return {
-            'type': cls.deduping_types.VENUE,
+            'type': cls.deduping_types.NAME_ADDRESS,
             'name_likely_dupe_threshold': name_likely_dupe_threshold,
             'name_needs_review_threshold': name_needs_review_threshold,
             'with_unit': with_unit,
@@ -61,21 +61,6 @@ class DedupeResponse(object):
             'type': cls.deduping_types.ADDRESS,
             'with_unit': with_unit
         }
-
-    @classmethod
-    def add_possible_dupe(cls, response, value, classification, name_similarity, is_canonical, explain=None):
-        response.setdefault('same_as', [])
-        same_as = {
-            'is_canonical': is_canonical,
-            'name_similarity': similarity,
-            'classification': classification,
-            'object': value,
-        }
-        if explain:
-            same_as['explain'] = explain
-        response['same_as'].append(same_as)
-
-        return response
 
     @classmethod
     def add_possible_dupe(cls, response, value, classification, is_canonical, similarity, explain=None):
