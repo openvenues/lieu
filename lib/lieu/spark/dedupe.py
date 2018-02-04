@@ -162,6 +162,7 @@ class NameAddressDeduperSpark(object):
                   min_name_word_count=1, min_geo_name_word_count=1, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                   name_review_threshold=DedupeResponse.default_name_review_threshold, index_type=WordIndex.INFORMATION_GAIN, geo_model_proportion=DEFAULT_GEO_MODEL_PROPORTION,
                   with_address=True, with_unit=False, with_city_or_equivalent=False, with_small_containing_boundaries=False, with_postal_code=False,
+                  name_and_address_keys=True, name_only_keys=False, address_only_keys=False,
                   with_latlon=True, fuzzy_street_name=True, with_phone_number=True):
         id_address = address_ids.map(lambda (address, uid): (uid, address))
 
@@ -190,7 +191,8 @@ class NameAddressDeduperSpark(object):
         addresses_and_languages = id_address.join(address_languages)
 
         address_hashes = addresses_and_languages.flatMap(lambda (uid, (address, langs)): [(h, uid) for h in NameAddressDeduper.near_dupe_hashes(address, languages=langs, with_address=with_address, with_unit=with_unit, with_city_or_equivalent=with_city_or_equivalent, \
-                                                                                                                                                with_small_containing_boundaries=with_small_containing_boundaries, with_postal_code=with_postal_code, with_latlon=with_latlon)])
+                                                                                                                                                with_small_containing_boundaries=with_small_containing_boundaries, with_postal_code=with_postal_code, with_latlon=with_latlon,
+                                                                                                                                                name_and_address_keys=name_and_address_keys, name_only_keys=name_only_keys, address_only_keys=address_only_keys)])
 
         address_dupe_pairs = AddressDeduperSpark.address_dupe_pairs(address_hashes, addresses_and_languages, sub_building=with_unit, fuzzy_street_name=fuzzy_street_name) \
                                                 .coalesce(num_partitions)

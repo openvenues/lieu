@@ -322,7 +322,7 @@ class NameAddressDeduper(AddressDeduper):
 
     @classmethod
     def dupe_class_and_sim(cls, a1, a2, word_index=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
-                           needs_review_threshold=DedupeResponse.default_name_review_threshold, with_unit=False, with_phone_number=True, fuzzy_street_name=False):
+                           needs_review_threshold=DedupeResponse.default_name_review_threshold, with_address=True, with_unit=False, with_phone_number=True, fuzzy_street_name=False):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
@@ -333,9 +333,10 @@ class NameAddressDeduper(AddressDeduper):
 
         languages = cls.combined_languages(a1_languages, a2_languages)
 
-        same_address = cls.is_address_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
-        if not same_address:
-            return None, 0.0
+        if with_address:
+            same_address = cls.is_address_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
+            if not same_address:
+                return None, 0.0
 
         if with_unit:
             same_unit = cls.is_sub_building_dupe(a1, a2, languages=languages)

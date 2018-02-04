@@ -83,6 +83,16 @@ if __name__ == '__main__':
                         default=False,
                         help='Address duplicates only')
 
+    parser.add_argument('--name-only',
+                        action="store_true",
+                        default=False,
+                        help="Name duplicates only")
+
+    parser.add_argument('--address-only-candidates',
+                        action="store_true",
+                        default=False,
+                        help='Use address-only hash keys for candidate generation, and compare all names at that address pairwise.')
+
     parser.add_argument('--dupes-only',
                         action='store_true',
                         default=False,
@@ -108,12 +118,23 @@ if __name__ == '__main__':
                         default=False,
                         help='Use the postcode as a geo qualifier (only for single-country data sets or cases where postcode is unambiguous)')
 
-    parser.add_argument('--no-fuzzy-street-names', '-z',
+    parser.add_argument('--no-phone-numbers',
+                        dest='use_phone_number',
+                        action='store_false',
+                        default=True,
+                        help='Turn off comparison of normalized phone numbers as a postprocessing step (when available). Revises dupe classifications for phone number matches or definite mismatches.')
+
+    parser.add_argument('--no-fuzzy-street-names',
                         dest='fuzzy_street_names',
                         action='store_false',
                         default=True,
-                        help='Do not use fuzzy street name comparison for minor misspellings, etc.'
+                        help='Do not use fuzzy street name comparison for minor misspellings, etc.  Only use libpostal expansion equality.'
                         )
+
+    parser.add_argument('--with-unit',
+                        action='store_true',
+                        default=False,
+                        help='Include unit comparisons in deduplication (only if both addresses have unit)')
 
     parser.add_argument('-output-dir', '-o',
                         default='deduped',
@@ -154,20 +175,11 @@ if __name__ == '__main__':
                         default=DedupeResponse.default_name_review_threshold,
                         help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
-    parser.add_argument('--name-missing-unit-review-threshold', '-u',
-                        type=float,
-                        default=DedupeResponse.default_name_review_threshold,
-                        help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
-
-    parser.add_argument('--no-unit',
-                        dest='with_unit',
-                        action='store_false',
-                        default=True,
-                        help='Do not include units in deduplication (only compared if both addresses have unit. Likely dupes where one address has unit info are demoted to needs review)')
-
     args = parser.parse_args()
 
     address_only = args.address_only
+    name_only = args.name_only
+    with_address = not name_only
     with_unit = args.with_unit
     name_dupe_threshold = args.name_dupe_threshold
     name_review_threshold = args.name_review_threshold
@@ -177,6 +189,8 @@ if __name__ == '__main__':
     use_city = args.use_city
     use_postal_code = args.use_postal_code
     use_containing = args.use_small_containing
+
+    use_phone_number = args.use_phone_number
 
     word_index_builder = None
     word_index_filename = None
@@ -198,7 +212,7 @@ if __name__ == '__main__':
     features_db_path = os.path.join(args.output_dir, args.features_db_name)
     leveldb.DestroyDB(features_db_path)
 
-    print('Guids DB: {}'.format(features_db_path))
+    print('Features DB: {}'.format(features_db_path))
 
     features_db = leveldb.LevelDB(features_db_path)
 
@@ -227,7 +241,7 @@ if __name__ == '__main__':
             if not name:
                 continue
             word_index_builder.update(Name.content_tokens(name))
-            hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+            hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_address=with_address, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, name_and_address_keys=with_address, name_only_keys=name_only)
         else:
             hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
 
@@ -293,10 +307,13 @@ if __name__ == '__main__':
         other = Address.from_geojson(other_feature)
 
         if not address_only:
+
             dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
                                                                     likely_dupe_threshold=name_dupe_threshold,
                                                                     needs_review_threshold=name_review_threshold,
+                                                                    with_address=with_address,
                                                                     with_unit=with_unit,
+                                                                    with_phone_number=use_phone_number,
                                                                     fuzzy_street_name=fuzzy_street_names)
 
             if dupe_class is not None:
@@ -313,9 +330,9 @@ if __name__ == '__main__':
     print('* Building output file')
 
     if not address_only:
-        explain = DedupeResponse.explain_venue_dupe(name_likely_dupe_threshold=name_dupe_threshold,
-                                                    name_needs_review_threshold=name_review_threshold,
-                                                    with_unit=with_unit)
+        explain = DedupeResponse.explain_name_address_dupe(name_likely_dupe_threshold=name_dupe_threshold,
+                                                           name_needs_review_threshold=name_review_threshold,
+                                                           with_unit=with_unit)
 
     else:
         explain = DedupeResponse.explain_address_dupe(with_unit=with_unit)

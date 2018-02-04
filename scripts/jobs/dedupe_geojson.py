@@ -1,29 +1,47 @@
 import ujson as json
-from collections import Counter, defaultdict
 
 from lieu.api import DedupeResponse
 from lieu.address import Address
 
-from lieu.spark.dedupe import AddressDeduperSpark, VenueDeduperSpark
-from lieu.spark.utils import IDPairRDD
+from lieu.spark.dedupe import AddressDeduperSpark, NameAddressDeduperSpark
+from lieu.word_index import WordIndex
 
 from mrjob.job import MRJob
 
 
-class DedupeVenuesJob(MRJob):
+class DedupeGeoJSONJob(MRJob):
     def configure_options(self):
-        super(DedupeVenuesJob, self).configure_options()
+        super(DedupeGeoJSONJob, self).configure_options()
         self.add_passthrough_option(
             '--address-only',
-            default=False,
             action="store_true",
+            default=False,
             help="Address duplicates only")
 
         self.add_passthrough_option(
-            '--no-geo-model',
-            default=False,
+            '--name-only',
             action="store_true",
+            default=False,
+            help="Name duplicates only")
+
+        self.add_passthrough_option(
+            '--address-only-candidates',
+            action='store_true',
+            default=False,
+            help='Use address-only hash keys for candidate generation, and compare all names at that address pairwise.')
+
+        self.add_passthrough_option(
+            '--no-geo-model',
+            dest='geo_model',
+            default=True,
+            action="store_false",
             help="Disables the geo model (if using Spark on a small, local data set)")
+
+        self.add_passthrough_option(
+            '--geo-model-proportion',
+            type=float,
+            default=NameAddressDeduperSpark.DEFAULT_GEO_MODEL_PROPORTION,
+            help="Weight to use when ")
 
         self.add_passthrough_option(
             '--dupes-only',
@@ -33,8 +51,9 @@ class DedupeVenuesJob(MRJob):
 
         self.add_passthrough_option(
             '--no-latlon',
-            action='store_true',
-            default=False,
+            dest='use_latlon',
+            default=True,
+            action='store_false',
             help='Do not use lat/lon or geohashing (if one data set has no lat/lons for instance)')
 
         self.add_passthrough_option(
@@ -44,10 +63,32 @@ class DedupeVenuesJob(MRJob):
             help='Use the city for cases where lat/lon is not available (only for local data sets)')
 
         self.add_passthrough_option(
+            '--use-small-containing',
+            action='store_true',
+            default=False,
+            help='Use the small containing boundaries like county as a geo qualifier (only for local data sets)')
+
+        self.add_passthrough_option(
             '--use-postal-code',
             action='store_true',
             default=False,
-            help='Use the postcode when lat/lon is not available')
+            help='Use the postcode as a geo qualifier (only for single-country data sets or cases where postcode is unambiguous)')
+
+        self.add_passthrough_option(
+            '--no-phone-numbers',
+            dest='use_phone_number',
+            action='store_false',
+            default=True,
+            help='Turn off comparison of normalized phone numbers as a postprocessing step (when available). Revises dupe classifications for phone number matches or definite mismatches.'
+        )
+
+        self.add_passthrough_option(
+            '--no-fuzzy-street-names',
+            dest='fuzzy_street_names',
+            action='store_false',
+            default=True,
+            help='Do not use fuzzy street name comparison for minor misspellings, etc. Only use libpostal expansion equality.'
+        )
 
         self.add_passthrough_option(
             '--name-dupe-threshold',
@@ -65,12 +106,18 @@ class DedupeVenuesJob(MRJob):
             '--with-unit',
             default=False,
             action="store_true",
-            help="Whether to include units in deduplication")
+            help="Include unit comparisons in deduplication (only if both addresses have unit)")
+
+        self.add_passthrough_option(
+            '--index-type',
+            choices=[WordIndex.TFIDF, WordIndex.INFORMATION_GAIN],
+            default=WordIndex.INFORMATION_GAIN,
+            help='Model to use for word relevance')
 
     def spark(self, input_path, output_path):
         from pyspark import SparkContext
 
-        sc = SparkContext(appName='dedupe venues MRJob')
+        sc = SparkContext(appName='dedupe geojson MRJob')
 
         lines = sc.textFile(input_path)
 
@@ -80,17 +127,31 @@ class DedupeVenuesJob(MRJob):
 
         address_ids = geojson_ids.map(lambda (geojson, uid): (Address.from_geojson(geojson), uid))
 
-        geo_model = not self.options.no_geo_model
+        geo_model = self.options.geo_model
+        index_type = self.options.index_type
 
         dupes_only = self.options.dupes_only
-        use_latlon = not self.options.no_latlon
+        address_only_candidates = self.options.address_only_candidates
+        use_latlon = self.options.use_latlon
         use_city = self.options.use_city
+        use_containing = self.options.use_containing
         use_postal_code = self.options.use_postal_code
+        fuzzy_street_name = self.options.fuzzy_street_names
+        geo_model_proportion = self.options.geo_model_proportion
+        name_dupe_threshold = self.options.name_dupe_threshold
+        name_review_threshold = self.options.name_review_threshold
+        with_unit = self.options.with_unit
+        with_phone_number = self.options.use_phone_number
 
         if not self.options.address_only:
-            dupes_with_classes_and_sims = VenueDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+            name_only = self.options.name_only
+            with_address = not name_only
+            name_and_address_keys = with_address
+            address_only_keys = address_only_candidates
+            name_only_keys = name_only
+            dupes_with_classes_and_sims = NameAddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, geo_model_proportion=geo_model_proportion, index_type=index_type, name_dupe_threshold=name_dupe_threshold, name_review_threshold=name_review_threshold, with_address=with_address, with_unit=with_unit, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, fuzzy_street_name=fuzzy_street_name, with_phone_number=with_phone_number, name_and_address_keys=name_and_address_keys, name_only_keys=name_only_keys, address_only_keys=address_only_keys)
         else:
-            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+            dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, with_unit=with_unit, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, fuzzy_street_name=fuzzy_street_name)
 
         dupes = dupes_with_classes_and_sims.filter(lambda ((uid1, uid2), (classification, sim)): classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)) \
                                            .map(lambda ((uid1, uid2), (classification, sim)): (uid1, True)) \
@@ -109,9 +170,9 @@ class DedupeVenuesJob(MRJob):
                                                           .map(lambda (uid2, ((uid1, classification, sim), is_canonical)): ((uid1, uid2), (classification, is_canonical or False, sim)))
 
         if not self.options.address_only:
-            explain = DedupeResponse.explain_venue_dupe(name_dupe_threshold=self.options.name_dupe_threshold,
-                                                        name_review_threshold=self.options.name_review_threshold,
-                                                        with_unit=self.options.with_unit)
+            explain = DedupeResponse.explain_name_address_dupe(name_dupe_threshold=self.options.name_dupe_threshold,
+                                                               name_review_threshold=self.options.name_review_threshold,
+                                                               with_unit=self.options.with_unit)
         else:
             explain = DedupeResponse.explain_address_dupe(with_unit=self.options.with_unit)
 
@@ -140,4 +201,4 @@ class DedupeVenuesJob(MRJob):
         sc.stop()
 
 if __name__ == '__main__':
-    DedupeVenuesJob.run()
+    DedupeGeoJSONJob.run()
