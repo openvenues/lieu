@@ -234,21 +234,15 @@ class Name(object):
 
 class PhoneNumberDeduper(object):
     @classmethod
-    def have_phone_numbers(cls, a1, a2):
+    def normalized_phone_numbers(cls, a1, a2):
         num1 = a1.get(EntityDetails.PHONE, u'').strip()
         num2 = a2.get(EntityDetails.PHONE, u'').strip()
-        return bool(num1) and bool(num2)
-
-    @classmethod
-    def is_phone_number_dupe(cls, a1, a2):
-        num1 = a1.get(EntityDetails.PHONE)
-        num2 = a2.get(EntityDetails.PHONE)
 
         country_code1 = a1.get(AddressComponents.COUNTRY)
         country_code2 = a2.get(AddressComponents.COUNTRY)
 
         if country_code1 and country_code2 and country_code1 != country_code2:
-            return False
+            return None, None
 
         country_code = country_code1 or country_code2
 
@@ -256,14 +250,19 @@ class PhoneNumberDeduper(object):
             p1 = phonenumbers.parse(num1, region=country_code)
             p2 = phonenumbers.parse(num2, region=country_code)
         except phonenumbers.NumberParseException:
-            return False
+            return None, None
 
-        return p1.country_code == p2.country_code and p1.national_number == p2.national_number
+        return p1, p2
+
+    @classmethod
+    def is_phone_number_dupe(cls, p1, p2):
+        return p1 and p2 and p1.country_code == p2.country_code and p1.national_number == p2.national_number
 
     @classmethod
     def revised_dupe_class(cls, dupe_class, a1, a2):
-        have_phone_number = cls.have_phone_numbers(a1, a2)
-        same_phone_number = cls.is_phone_number_dupe(a1, a2)
+        p1, p2 = cls.normalized_phone_numbers(a1, a2)
+        have_phone_number = p1 is not None and p2 is not None
+        same_phone_number = cls.is_phone_number_dupe(p1, p2)
         different_phone_number = have_phone_number and not same_phone_number
 
         if dupe_class == duplicate_status.NEEDS_REVIEW and same_phone_number:
