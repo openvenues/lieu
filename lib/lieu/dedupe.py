@@ -1,5 +1,3 @@
-import fuzzy
-import geohash
 import re
 import six
 
@@ -13,7 +11,6 @@ from postal.token_types import token_types
 
 from lieu.address import AddressComponents, EntityDetails, Coordinates
 from lieu.api import DedupeResponse
-from lieu.similarity import ordered_word_count
 from lieu.word_index import WordIndex
 
 whitespace_regex = re.compile('[\s]+')
