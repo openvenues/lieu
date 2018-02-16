@@ -168,7 +168,6 @@ class AddressDeduper(object):
     @classmethod
     def address_labels_and_values(cls, address):
         string_address = {k: v for k, v in six.iteritems(address) if isinstance(v, six.string_types) and v.strip()}
-
         return string_address.keys(), string_address.values()
 
     @classmethod
@@ -283,16 +282,6 @@ class NameAddressDeduper(AddressDeduper):
         vector = word_index.vector(tokens)
         return word_index.normalized_vector(vector)
 
-    dupe_class_map = {
-        duplicate_status.LIKELY_DUPLICATE: DedupeResponse.classifications.LIKELY_DUPE,
-        duplicate_status.EXACT_DUPLICATE: DedupeResponse.classifications.EXACT_DUPE,
-        duplicate_status.NEEDS_REVIEW: DedupeResponse.classifications.NEEDS_REVIEW,
-    }
-
-    @classmethod
-    def string_dupe_class(cls, dupe_class):
-        return cls.dupe_class_map.get(dupe_class)
-
     @classmethod
     def name_dupe_fuzzy(cls, a1_name_tokens, a1_scores_norm, a2_name_tokens, a2_scores_norm, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                         needs_review_threshold=DedupeResponse.default_name_review_threshold):
@@ -341,14 +330,14 @@ class NameAddressDeduper(AddressDeduper):
 
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
         if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
-            return DedupeResponse.classifications.EXACT_DUPE, 1.0
+            return duplicate_status.EXACT_DUPLICATE, 1.0
         elif word_index:
             name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
 
             if with_phone_number:
                 name_fuzzy_dupe_class = PhoneNumberDeduper.revised_dupe_class(name_fuzzy_dupe_class, a1, a2)
             if name_fuzzy_dupe_class >= name_dupe_class:
-                return cls.string_dupe_class(name_fuzzy_dupe_class), name_sim
+                return name_fuzzy_dupe_class, name_sim
 
         if name_dupe_class == duplicate_status.LIKELY_DUPLICATE:
             name_sim = likely_dupe_threshold
@@ -357,12 +346,12 @@ class NameAddressDeduper(AddressDeduper):
         else:
             return None, 0.0
 
-        return cls.string_dupe_class(name_dupe_class), name_sim
+        return name_dupe_class, name_sim
 
     @classmethod
     def is_dupe(cls, a1, a2, index=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False, fuzzy_street_name=False):
         dupe_class, sim = cls.dupe_class_and_sim(a1, a2, index=index, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit, fuzzy_street_name=fuzzy_street_name)
-        return dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE)
+        return dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
 
     @classmethod
     def name_dupe_status(cls, name1, name2, languages=None):

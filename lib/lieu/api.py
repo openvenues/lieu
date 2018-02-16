@@ -1,5 +1,6 @@
 import uuid
 from operator import itemgetter
+from postal.dedupe import duplicate_status
 
 
 class DedupeResponse(object):
@@ -7,6 +8,16 @@ class DedupeResponse(object):
         NEEDS_REVIEW = 'needs_review'
         LIKELY_DUPE = 'likely_dupe'
         EXACT_DUPE = 'exact_dupe'
+
+    dupe_class_map = {
+        duplicate_status.LIKELY_DUPLICATE: classifications.LIKELY_DUPE,
+        duplicate_status.EXACT_DUPLICATE: classifications.EXACT_DUPE,
+        duplicate_status.NEEDS_REVIEW: classifications.NEEDS_REVIEW,
+    }
+
+    @classmethod
+    def string_dupe_class(cls, dupe_class):
+        return cls.dupe_class_map.get(dupe_class)
 
     class deduping_types:
         NAME_ADDRESS = 'name+address'

@@ -230,7 +230,7 @@ class NameAddressDeduperSpark(object):
                                           .mapValues(lambda ((a1, a2), (dupe_class, sim)): (PhoneNumberDeduper.revised_dupe_class(dupe_class, a1, a2), sim)) \
                                           .coalesce(num_partitions)
 
-        possible_dupe_sims = possible_dupe_sims.mapValues(lambda (dupe_class, sim): (DedupeResponse.classifications.LIKELY_DUPE if dupe_class == duplicate_status.LIKELY_DUPLICATE else DedupeResponse.classifications.NEEDS_REVIEW, sim))
+        possible_dupe_sims = possible_dupe_sims.mapValues(lambda (dupe_class, sim): (DedupeResponse.string_dupe_class(dupe_classe), sim))
 
         all_dupe_sims = possible_dupe_sims.union(exact_dupe_sims)
 
