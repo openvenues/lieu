@@ -85,6 +85,43 @@ def db_get_address(features_db, feature_id):
         return None
 
 
+def is_address_dupe(canonical, other, dupe_pairs, dupes, with_unit=False, fuzzy_street_names=False):
+    if AddressDeduper.is_dupe(canonical, other, with_unit=with_unit, fuzzy_street_name=fuzzy_street_names):
+        dupe_pairs[other_id][canonical_id] = (duplicate_status.EXACT_DUPLICATE, 1.0)
+        dupes.add(other_id)
+        return True
+    return False
+
+
+def is_name_address_dupe(canoncal, other, dupe_pairs, dupes, word_index=None,
+                         name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
+                         needs_review_threshold=DedupeResponse.default_name_review_threshold,
+                         with_address=True,
+                         with_unit=False,
+                         use_phone_number=False,
+                         fuzzy_street_names=False):
+    if not address_only:
+        dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
+                                                                likely_dupe_threshold=name_dupe_threshold,
+                                                                needs_review_threshold=name_review_threshold,
+                                                                with_address=with_address,
+                                                                with_unit=with_unit,
+                                                                with_phone_number=use_phone_number,
+                                                                fuzzy_street_name=fuzzy_street_names)
+
+        if dupe_class is not None:
+            if canonical_id in dupe_pairs[other_id]:
+                existing_dupe_class, existing_sim = dupe_pairs[other_id][canonical_id]
+                if existing_dupe_class > dupe_class or (existing_dupe_class == dupe_class and existing_sim > sim):
+                    return False
+            dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
+
+            if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
+                dupes.add(other_id)
+                return True
+    return False
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -134,6 +171,11 @@ if __name__ == '__main__':
                         action='store_true',
                         default=False,
                         help='Use the postcode as a geo qualifier (only for single-country data sets or cases where postcode is unambiguous)')
+
+    parser.add_argument('--use-zip5',
+                        action='store_true',
+                        default=False,
+                        help='For U.S. data sets, cut the ZIP code at 5 digits')
 
     parser.add_argument('--no-phone-numbers',
                         dest='use_phone_number',
@@ -206,6 +248,7 @@ if __name__ == '__main__':
     use_latlon = not args.no_latlon
     use_city = args.use_city
     use_postal_code = args.use_postal_code
+    use_zip5 = args.use_zip5
     use_containing = args.use_small_containing
 
     use_phone_number = args.use_phone_number
@@ -244,10 +287,10 @@ if __name__ == '__main__':
 
     feature_id = 0
 
-    with_latlon = None
+    have_latlon = None
 
     if geocode:
-        with_latlon = set()
+        have_latlon = set()
 
     batch = leveldb.WriteBatch()
     for feature_id, feature in id_features(args.files):
@@ -259,16 +302,16 @@ if __name__ == '__main__':
 
         address = Address.from_geojson(feature)
         if geocode and Coordinates.LATITUDE in address and Coordinates.LONGITUDE in address:
-            with_latlon.add(feature_id)
+            have_latlon.add(six.text_type(feature_id))
 
         if not address_only:
             name = address.get(AddressComponents.NAME)
             if not name:
                 continue
             word_index_builder.update(Name.content_tokens(name))
-            hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_address=with_address, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, name_and_address_keys=with_address, name_only_keys=name_only)
+            hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_address=with_address, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5, name_and_address_keys=with_address, name_only_keys=name_only)
         else:
-            hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code)
+            hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5)
 
         for h in hashes:
             map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
@@ -276,7 +319,7 @@ if __name__ == '__main__':
     features_db.Write(batch, sync=True)
 
     if geocode:
-        print('  Number of records with lat/lon: {}'.format(len(with_latlon)))
+        print('  Number of records with lat/lon: {}'.format(len(have_latlon)))
 
     num_features = feature_id
 
@@ -309,8 +352,23 @@ if __name__ == '__main__':
     kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
                                       key=operator.itemgetter(0)))
 
-    seen = set()
     possible_dupe_pairs = set()
+
+    if address_only:
+        dupe_func = is_address_dupe
+        dupe_func_kw = dict(with_unit=with_unit,
+                            fuzzy_street_names=fuzzy_street_names)
+    else:
+        dupe_func = is_name_address_dupe
+        dupe_func_kw = dict(word_index=word_index,
+                            name_dupe_threshold=name_dupe_threshold,
+                            needs_review_threshold=name_review_threshold,
+                            with_address=with_address,
+                            with_unit=with_unit,
+                            use_phone_number=use_phone_number,
+                            fuzzy_street_names=fuzzy_street_names)
+
+    num_comparisons = 0
 
     while True:
         try:
@@ -320,53 +378,40 @@ if __name__ == '__main__':
             num_candidate_dupes = len(candidate_dupes)
 
             if (i % 10000 == 0 and i > 0):
-                print('did {} hashes with {} pairwise comparisons'.format(i, len(possible_dupe_pairs)))
+                print('did {} hashes requiring {} pairwise comparisons'.format(i, num_comparisons))
 
             if num_candidate_dupes > 1:
                 if not geocode:
                     for canonical_id, other_id in itertools.combinations(candidate_dupes, 2):
                         possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
+                        num_comparisons += 1
                 else:
-                    canonicals = [feature_id for feature_id in candidate_dupes if feature_id in with_latlon]
-                    others = [feature_id for feature_id in candidate_dupes if feature_id not in with_latlon]
-                    for canonical_id, other_id in itertools.product(canonicals, others):
-                        possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
+                    canonicals = [(feature_id, db_get_address(features_db, feature_id)) for feature_id in candidate_dupes if feature_id in have_latlon]
+                    others = [(feature_id, db_get_address(features_db, feature_id)) for feature_id in candidate_dupes if feature_id not in have_latlon and feature_id not in dupes]
+                    if not canonicals or not others:
+                        continue
+
+                    for (other_id, other) in others:
+                        for (canonical_id, canonical) in canonicals:
+                            is_dupe = dupe_func(canonical, other, dupe_pairs, dupes, **dupe_func_kw)
+                            num_comparisons += 1
+                            if is_dupe:
+                                break
 
         except StopIteration:
             break
 
-    for j, (canonical_id, other_id) in enumerate(possible_dupe_pairs):
-        if (j % 1000 == 0 and j > 0):
-            print('did {} comparisons'.format(j))
-        canonical_feature = json.loads(features_db.Get(db_key(canonical_id)))
-        other_feature = json.loads(features_db.Get(db_key(other_id)))
+    if possible_dupe_pairs:
+        for j, (canonical_id, other_id) in enumerate(possible_dupe_pairs):
+            canonical_feature = json.loads(features_db.Get(db_key(canonical_id)))
+            other_feature = json.loads(features_db.Get(db_key(other_id)))
 
-        canonical = db_get_address(features_db, canonical_id)
-        other = db_get_address(features_db, other_id)
+            canonical = db_get_address(features_db, canonical_id)
+            other = db_get_address(features_db, other_id)
 
-        if not address_only:
-            dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
-                                                                    likely_dupe_threshold=name_dupe_threshold,
-                                                                    needs_review_threshold=name_review_threshold,
-                                                                    with_address=with_address,
-                                                                    with_unit=with_unit,
-                                                                    with_phone_number=use_phone_number,
-                                                                    fuzzy_street_name=fuzzy_street_names)
+            is_dupe = dupe_func(canonical, other, dupe_pairs, dupes, **dupe_func_kw)
 
-            if dupe_class is not None:
-                if canonical_id in dupe_pairs[other_id]:
-                    existing_dupe_class, existing_sim = dupe_pairs[other_id][canonical_id]
-                    if existing_dupe_class > dupe_class or (existing_dupe_class == dupe_class and existing_sim > sim):
-                        continue
-                dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
-
-                if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
-                    dupes.add(other_id)
-        elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit, fuzzy_street_name=fuzzy_street_names):
-            dupe_pairs[other_id][canonical_id] = (duplicate_status.EXACT_DUPLICATE, 1.0)
-            dupes.add(other_id)
-
-    print('  did {} pairwise comparisons out of {} possible comparisons'.format(len(possible_dupe_pairs), (num_features * (num_features - 1)) / 2 ))
+    print('  did {} pairwise comparisons out of {} possible comparisons'.format(num_comparisons, (num_features * (num_features - 1)) / 2 ))
 
     os.unlink(sorted_temp_filename)
 
