@@ -24,6 +24,8 @@ class AddressDeduper(object):
     name_and_address_keys = False
     with_name = False
 
+    us_zip5_pattern = re.compile('^\s*([0-9]{5})\-?([0-9]{4})\s*$')
+
     @classmethod
     def address_dupe_status(cls, a1, a2, languages=None, fuzzy_street_name=False):
         a1_street = a1.get(AddressComponents.STREET)
@@ -166,8 +168,14 @@ class AddressDeduper(object):
         return cls.is_address_dupe(a1, a2, languages=languages) and (not with_unit or cls.is_sub_building_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name))
 
     @classmethod
-    def address_labels_and_values(cls, address):
+    def address_labels_and_values(cls, address, use_zip5=False):
         string_address = {k: v for k, v in six.iteritems(address) if isinstance(v, six.string_types) and v.strip()}
+        if use_zip5 and AddressComponents.POSTAL_CODE in string_address:
+            postal_code = string_address[AddressComponents.POSTAL_CODE]
+            match = cls.us_zip5_pattern.match(postal_code)
+            if match:
+                string_address[AddressComponents.POSTAL_CODE] = match.group(1)
+
         return string_address.keys(), string_address.values()
 
     @classmethod
@@ -177,6 +185,7 @@ class AddressDeduper(object):
                          with_city_or_equivalent=False,
                          with_small_containing_boundaries=False,
                          with_postal_code=False,
+                         with_zip5=False,
                          with_latlon=True,
                          geohash_precision=None,
                          name_and_address_keys=None,
@@ -195,7 +204,7 @@ class AddressDeduper(object):
         if languages is None:
             languages = cls.address_languages(address)
 
-        labels, values = cls.address_labels_and_values(address)
+        labels, values = cls.address_labels_and_values(address, use_zip5=with_zip5)
 
         if name_only_keys is None:
             name_only_keys = cls.name_only_keys
