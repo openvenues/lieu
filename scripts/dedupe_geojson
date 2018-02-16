@@ -8,12 +8,11 @@ import subprocess
 import uuid
 
 from six import itertools, operator
-from six.moves import xrange
 
 import ujson as json
-from collections import Counter, defaultdict
+from collections import OrderedDict, defaultdict
 
-from lieu.address import Address, AddressComponents
+from lieu.address import Address, AddressComponents, Coordinates
 from lieu.api import DedupeResponse
 from lieu.dedupe import NameAddressDeduper, AddressDeduper, Name
 from lieu.encoding import safe_encode, safe_decode
@@ -21,6 +20,8 @@ from lieu.information_gain import InformationGainBuilder
 from lieu.tfidf import TFIDF
 from lieu.input import GeoJSONParser, GeoJSONLineParser
 from lieu.word_index import WordIndex
+
+from postal.dedupe import duplicate_status
 
 
 def open_geojson_file(filename):
@@ -54,23 +55,34 @@ def id_features(filenames):
 
 def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
     value = json.loads(value)
-    is_dupe = any((classification in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE) for other_id, classification, sim in dupe_pairs.get(feature_id, ())))
+    is_dupe = any((status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) for other_id, (status, sim) in dupe_pairs.get(feature_id, {}).items()))
     if not is_dupe:
         guid = value_guid(value)
         DedupeResponse.add_guid(value, guid)
     response = DedupeResponse.base_response(value, is_dupe)
 
     if feature_id in dupe_pairs:
-        for other_id, classification, sim in dupe_pairs[feature_id]:
+        for other_id, (status, sim) in six.iteritems(dupe_pairs[feature_id]):
             other_value = json.loads(features_db.Get(db_key(other_id)))
 
             is_canonical = other_id not in dupes
 
+            classification = DedupeResponse.string_dupe_class(status)
+
             if is_canonical:
                 other_guid = value_guid(other_value)
                 DedupeResponse.add_guid(other_value, other_guid)
+
             DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
     return response
+
+
+def db_get_address(features_db, feature_id):
+    result = features_db.Get(db_key(feature_id))
+    if result:
+        return Address.from_geojson(json.loads(result))
+    else:
+        return None
 
 
 if __name__ == '__main__':
@@ -82,6 +94,11 @@ if __name__ == '__main__':
                         action='store_true',
                         default=False,
                         help='Address duplicates only')
+
+    parser.add_argument('--geocode',
+                        action='store_true',
+                        default=False,
+                        help='Geocode (dupe canonical should always have a lat/lon)')
 
     parser.add_argument('--name-only',
                         action="store_true",
@@ -179,6 +196,7 @@ if __name__ == '__main__':
 
     address_only = args.address_only
     name_only = args.name_only
+    geocode = args.geocode
     with_address = not name_only
     with_unit = args.with_unit
     name_dupe_threshold = args.name_dupe_threshold
@@ -226,6 +244,11 @@ if __name__ == '__main__':
 
     feature_id = 0
 
+    with_latlon = None
+
+    if geocode:
+        with_latlon = set()
+
     batch = leveldb.WriteBatch()
     for feature_id, feature in id_features(args.files):
         DedupeResponse.add_random_guid(feature)
@@ -235,6 +258,8 @@ if __name__ == '__main__':
             batch = leveldb.WriteBatch()
 
         address = Address.from_geojson(feature)
+        if geocode and Coordinates.LATITUDE in address and Coordinates.LONGITUDE in address:
+            with_latlon.add(feature_id)
 
         if not address_only:
             name = address.get(AddressComponents.NAME)
@@ -249,6 +274,9 @@ if __name__ == '__main__':
             map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
 
     features_db.Write(batch, sync=True)
+
+    if geocode:
+        print('  Number of records with lat/lon: {}'.format(len(with_latlon)))
 
     num_features = feature_id
 
@@ -275,39 +303,48 @@ if __name__ == '__main__':
 
     print('* Checking blocks of near-dupe candidates pairwise for dupes')
 
-    dupe_pairs = defaultdict(set)
+    dupe_pairs = defaultdict(dict)
     dupes = set()
 
     kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
                                       key=operator.itemgetter(0)))
 
+    seen = set()
     possible_dupe_pairs = set()
 
     while True:
         try:
             i, (key, vals) = kvs.next()
-            candidate_dupes = [v for k, v in vals]
+            candidate_dupes = OrderedDict.fromkeys([v for _, v in vals]).keys()
 
             num_candidate_dupes = len(candidate_dupes)
 
+            if (i % 10000 == 0 and i > 0):
+                print('did {} hashes with {} pairwise comparisons'.format(i, len(possible_dupe_pairs)))
+
             if num_candidate_dupes > 1:
-                for (canonical_id, other_id) in itertools.combinations(candidate_dupes, 2):
-                    possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
+                if not geocode:
+                    for canonical_id, other_id in itertools.combinations(candidate_dupes, 2):
+                        possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
+                else:
+                    canonicals = [feature_id for feature_id in candidate_dupes if feature_id in with_latlon]
+                    others = [feature_id for feature_id in candidate_dupes if feature_id not in with_latlon]
+                    for canonical_id, other_id in itertools.product(canonicals, others):
+                        possible_dupe_pairs.add((min(canonical_id, other_id), max(canonical_id, other_id)))
 
         except StopIteration:
             break
 
-    print('  checking {} candidate pairs out of {} possible comparisons'.format(len(possible_dupe_pairs), (num_features * (num_features - 1)) / 2 ))
-
-    for canonical_id, other_id in possible_dupe_pairs:
+    for j, (canonical_id, other_id) in enumerate(possible_dupe_pairs):
+        if (j % 1000 == 0 and j > 0):
+            print('did {} comparisons'.format(j))
         canonical_feature = json.loads(features_db.Get(db_key(canonical_id)))
         other_feature = json.loads(features_db.Get(db_key(other_id)))
 
-        canonical = Address.from_geojson(canonical_feature)
-        other = Address.from_geojson(other_feature)
+        canonical = db_get_address(features_db, canonical_id)
+        other = db_get_address(features_db, other_id)
 
         if not address_only:
-
             dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
                                                                     likely_dupe_threshold=name_dupe_threshold,
                                                                     needs_review_threshold=name_review_threshold,
@@ -317,13 +354,19 @@ if __name__ == '__main__':
                                                                     fuzzy_street_name=fuzzy_street_names)
 
             if dupe_class is not None:
-                dupe_pairs[other_id].add((canonical_id, dupe_class, sim))
+                if canonical_id in dupe_pairs[other_id]:
+                    existing_dupe_class, existing_sim = dupe_pairs[other_id][canonical_id]
+                    if existing_dupe_class > dupe_class or (existing_dupe_class == dupe_class and existing_sim > sim):
+                        continue
+                dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
 
-                if dupe_class in (DedupeResponse.classifications.EXACT_DUPE, DedupeResponse.classifications.LIKELY_DUPE):
+                if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
                     dupes.add(other_id)
         elif address_only and AddressDeduper.is_dupe(canonical, other, with_unit=with_unit, fuzzy_street_name=fuzzy_street_names):
-            dupe_pairs[other_id].add((canonical_id, DedupeResponse.classifications.EXACT_DUPE, 1.0))
+            dupe_pairs[other_id][canonical_id] = (duplicate_status.EXACT_DUPLICATE, 1.0)
             dupes.add(other_id)
+
+    print('  did {} pairwise comparisons out of {} possible comparisons'.format(len(possible_dupe_pairs), (num_features * (num_features - 1)) / 2 ))
 
     os.unlink(sorted_temp_filename)
 
@@ -349,4 +392,5 @@ if __name__ == '__main__':
             out_file.write(json.dumps(response) + '\n')
 
     out_file.close()
+
     print('Finished. Got {} dupe records'.format(len(dupes)))
