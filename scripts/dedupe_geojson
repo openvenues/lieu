@@ -311,7 +311,7 @@ if __name__ == '__main__':
             word_index_builder.update(Name.content_tokens(name))
             hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_address=with_address, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5, name_and_address_keys=with_address, name_only_keys=name_only)
         else:
-            hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=args.use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5)
+            hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5)
 
         for h in hashes:
             map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
@@ -353,6 +353,7 @@ if __name__ == '__main__':
                                       key=operator.itemgetter(0)))
 
     possible_dupe_pairs = set()
+    seen = set()
 
     if address_only:
         dupe_func = is_address_dupe
@@ -393,8 +394,11 @@ if __name__ == '__main__':
 
                     for (other_id, other) in others:
                         for (canonical_id, canonical) in canonicals:
+                            if (other_id, canonical_id) in seen:
+                                continue
                             is_dupe = dupe_func(canonical, other, dupe_pairs, dupes, **dupe_func_kw)
                             num_comparisons += 1
+                            seen.add((other_id, canonical_id))
                             if is_dupe:
                                 break
 
