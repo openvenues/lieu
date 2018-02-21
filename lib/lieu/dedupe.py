@@ -165,7 +165,7 @@ class AddressDeduper(object):
     def is_dupe(cls, a1, a2, with_unit=True, fuzzy_street_name=False):
         languages = cls.combined_place_languages(cls.address_minus_name(a1), cls.address_minus_name(a2))
 
-        return cls.is_address_dupe(a1, a2, languages=languages) and (not with_unit or cls.is_sub_building_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name))
+        return cls.is_address_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name) and (not with_unit or cls.is_sub_building_dupe(a1, a2, languages=languages))
 
     @classmethod
     def address_labels_and_values(cls, address, use_zip5=False):
@@ -205,6 +205,8 @@ class AddressDeduper(object):
             languages = cls.address_languages(address)
 
         labels, values = cls.address_labels_and_values(address, use_zip5=with_zip5)
+        if not (labels and values and len(labels) == len(values)):
+            return []
 
         if name_only_keys is None:
             name_only_keys = cls.name_only_keys
