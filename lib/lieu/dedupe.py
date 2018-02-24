@@ -5,7 +5,7 @@ import phonenumbers
 
 from postal.near_dupe import near_dupe_hashes
 from postal.dedupe import place_languages, duplicate_status, is_name_duplicate, is_street_duplicate, is_house_number_duplicate, is_po_box_duplicate, is_unit_duplicate, is_floor_duplicate, is_postal_code_duplicate, is_toponym_duplicate, is_name_duplicate_fuzzy, is_street_duplicate_fuzzy
-from postal.normalize import normalized_tokens
+from postal.normalize import normalized_tokens, DEFAULT_STRING_OPTIONS, NORMALIZE_STRING_REPLACE_NUMEX
 from postal.tokenize import tokenize
 from postal.token_types import token_types
 
@@ -54,18 +54,27 @@ class AddressDeduper(object):
         same_street = False
         street_status = duplicate_status.NON_DUPLICATE
 
+        street_sim = 0.0
         if have_street:
             street_status = is_street_duplicate(a1_street, a2_street, languages=languages)
             same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+            if street_status == duplicate_status.EXACT_DUPLICATE:
+                street_sim = 1.0
+            elif street_status == duplicate_status.NEEDS_REVIEW:
+                street_sim = 0.5
+            elif street_status == duplicate_status.LIKELY_DUPLICATE:
+                street_sim = 0.9
+            else:
+                street_sim = 0.0
             if not same_street and fuzzy_street_name:
-                a1_street_tokens = Name.content_tokens(a1_street)
+                a1_street_tokens = Name.content_tokens(a1_street, languages=languages)
                 a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
-                a2_street_tokens = Name.content_tokens(a2_street)
+                a2_street_tokens = Name.content_tokens(a2_street, languages=languages)
                 a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
                 street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
                 same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
             if not same_street:
-                return duplicate_status.NON_DUPLICATE
+                return (duplicate_status.NON_DUPLICATE, 0.0)
 
         have_house_number = a1_house_number and a2_house_number
         same_house_number = False
@@ -75,23 +84,24 @@ class AddressDeduper(object):
             house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
             same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
             if not same_house_number:
-                return duplicate_status.NON_DUPLICATE
+                return (duplicate_status.NON_DUPLICATE, 0.0)
 
         if not have_house_number and not have_street:
-            return duplicate_status.NON_DUPLICATE
+            return (duplicate_status.NON_DUPLICATE, 0.0)
 
         if have_street and same_street and (same_house_number or not have_house_number):
-            return street_status
+            return (street_status, street_sim)
         elif have_house_number and same_house_number:
-            return house_number_status
+            return (house_number_status, 1.0)
         elif have_street and same_street:
-            return street_status
+            return (street_status, street_sim)
 
-        return duplicate_status.NON_DUPLICATE
+        return (duplicate_status.NON_DUPLICATE, 0.0)
 
     @classmethod
     def is_address_dupe(cls, a1, a2, languages=None, fuzzy_street_name=False):
-        return cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name) in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+        dupe_class, sim = cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
+        return dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
 
     @classmethod
     def one_address_is_missing_field(cls, field, a1, a2):
@@ -235,8 +245,8 @@ class AddressDeduper(object):
 
 class Name(object):
     @classmethod
-    def content_tokens(cls, name):
-        return [t for t, c in normalized_tokens(name) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES or c in (token_types.AMPERSAND, token_types.POUND)]
+    def content_tokens(cls, name, languages=None):
+        return [t for t, c in normalized_tokens(name, string_options=DEFAULT_STRING_OPTIONS | NORMALIZE_STRING_REPLACE_NUMEX, languages=languages) if c in token_types.WORD_TOKEN_TYPES or c in token_types.NUMERIC_TOKEN_TYPES or c in (token_types.AMPERSAND, token_types.POUND)]
 
 
 class PhoneNumberDeduper(object):
@@ -305,8 +315,8 @@ class NameAddressDeduper(AddressDeduper):
     @classmethod
     def name_dupe_similarity(cls, a1_name, a2_name, word_index, languages=None, likely_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                              needs_review_threshold=DedupeResponse.default_name_review_threshold):
-        a1_name_tokens = Name.content_tokens(a1_name)
-        a2_name_tokens = Name.content_tokens(a2_name)
+        a1_name_tokens = Name.content_tokens(a1_name, languages=languages)
+        a2_name_tokens = Name.content_tokens(a2_name, languages=languages)
         if not a1_name_tokens or not a2_name_tokens:
             return None, 0.0
 
