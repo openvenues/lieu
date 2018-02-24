@@ -2,6 +2,7 @@
 
 import argparse
 import leveldb
+import operator
 import os
 import six
 import subprocess
@@ -62,7 +63,7 @@ def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
     response = DedupeResponse.base_response(value, is_dupe)
 
     if feature_id in dupe_pairs:
-        for other_id, (status, sim) in six.iteritems(dupe_pairs[feature_id]):
+        for other_id, (status, sim) in sorted(dupe_pairs[feature_id].items(), key=operator.itemgetter(1), reverse=True):
             other_value = json.loads(features_db.Get(db_key(other_id)))
 
             is_canonical = other_id not in dupes
@@ -86,9 +87,11 @@ def db_get_address(features_db, feature_id):
 
 
 def is_address_dupe(canonical, other, dupe_pairs, dupes, with_unit=False, fuzzy_street_names=False):
-    if AddressDeduper.is_dupe(canonical, other, with_unit=with_unit, fuzzy_street_name=fuzzy_street_names):
-        dupe_pairs[other_id][canonical_id] = (duplicate_status.EXACT_DUPLICATE, 1.0)
-        dupes.add(other_id)
+    address_languages = AddressDeduper.combined_place_languages(canonical, other)
+    dupe_class, sim = AddressDeduper.address_dupe_status(canonical, other, languages=address_languages, fuzzy_street_name=fuzzy_street_names)
+    if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and (not with_unit or AddressDeduper.is_sub_building_dupe(canonical, other, languages=languages)):
+        dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
+        dupes[other_id] = max((dupe_class, sim), dupes.get(other_id, (duplicate_status.NON_DUPLICATE, 0.0)))
         return True
     return False
 
@@ -117,7 +120,7 @@ def is_name_address_dupe(canoncal, other, dupe_pairs, dupes, word_index=None,
             dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
 
             if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
-                dupes.add(other_id)
+                dupes[other_id] = max((dupe_class, sim), dupes.get(other_id, (duplicate_status.NON_DUPLICATE, 0.0)))
                 return True
     return False
 
@@ -308,7 +311,8 @@ if __name__ == '__main__':
             name = address.get(AddressComponents.NAME)
             if not name:
                 continue
-            word_index_builder.update(Name.content_tokens(name))
+            address_languages = NameAddressDeduper.address_languages(address)
+            word_index_builder.update(Name.content_tokens(name, languages=address_languages))
             hashes = NameAddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_address=with_address, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5, name_and_address_keys=with_address, name_only_keys=name_only)
         else:
             hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5)
@@ -347,7 +351,7 @@ if __name__ == '__main__':
     print('* Checking blocks of near-dupe candidates pairwise for dupes')
 
     dupe_pairs = defaultdict(dict)
-    dupes = set()
+    dupes = {}
 
     kvs = enumerate(itertools.groupby((safe_decode(line).rstrip().split(u'\t', 1) for line in open(sorted_temp_filename)),
                                       key=operator.itemgetter(0)))
@@ -388,7 +392,7 @@ if __name__ == '__main__':
                         num_comparisons += 1
                 else:
                     canonicals = [(feature_id, db_get_address(features_db, feature_id)) for feature_id in candidate_dupes if feature_id in have_latlon]
-                    others = [(feature_id, db_get_address(features_db, feature_id)) for feature_id in candidate_dupes if feature_id not in have_latlon and feature_id not in dupes]
+                    others = [(feature_id, db_get_address(features_db, feature_id)) for feature_id in candidate_dupes if feature_id not in have_latlon and dupes.get(feature_id, (duplicate_status.NON_DUPLICATE, 0.0))[0] != duplicate_status.EXACT_DUPLICATE]
                     if not canonicals or not others:
                         continue
 
