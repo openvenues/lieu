@@ -6,6 +6,7 @@ from lieu.coordinates import latlon_to_decimal
 class AddressComponents:
     NAME = 'house'
     HOUSE_NUMBER = 'house_number'
+    HOUSE_NUMBER_BASE = 'house_number_base'
     STREET = 'road'
     BUILDING = 'building'
     FLOOR = 'floor'
@@ -70,6 +71,7 @@ class Address(object):
             ('addr:housename', AddressComponents.NAME),
             ('addr:housenumber', AddressComponents.HOUSE_NUMBER),
             ('addr:house_number', AddressComponents.HOUSE_NUMBER),
+            ('addr:housenumber:base', AddressComponents.HOUSE_NUMBER_BASE),
             ('house_number', AddressComponents.HOUSE_NUMBER),
             ('housenumber', AddressComponents.HOUSE_NUMBER),
             ('addr:street', AddressComponents.STREET),

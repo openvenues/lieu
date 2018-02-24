@@ -44,11 +44,19 @@ class AddressDeduper(object):
         if a2_house_number:
             a2_house_number = a2_house_number.strip()
 
+        a1_base_house_number = a1.get(AddressComponents.HOUSE_NUMBER_BASE)
+        a2_base_house_number = a2.get(AddressComponents.HOUSE_NUMBER_BASE)
+
+        if a1_base_house_number:
+            a1_base_house_number = a1_base_house_number.strip()
+        if a2_base_house_number:
+            a2_base_house_number = a2_base_house_number.strip()
+
         if (a1_street and not a2_street) or (a2_street and not a1_street):
-            return duplicate_status.NON_DUPLICATE
+            return (duplicate_status.NON_DUPLICATE, 0.0)
 
         if (a1_house_number and not a2_house_number) or (a2_house_number and not a1_house_number):
-            return duplicate_status.NON_DUPLICATE
+            return (duplicate_status.NON_DUPLICATE, 0.0)
 
         have_street = a1_street and a2_street
         same_street = False
@@ -77,22 +85,37 @@ class AddressDeduper(object):
                 return (duplicate_status.NON_DUPLICATE, 0.0)
 
         have_house_number = a1_house_number and a2_house_number
+        have_base_house_number = a1_base_house_number or a2_base_house_number
         same_house_number = False
         house_number_status = duplicate_status.NON_DUPLICATE
 
         if have_house_number:
+            house_number_sim = 0.0
             house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
             same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
+            if same_house_number:
+                house_number_sim = 1.0
+
+            if have_base_house_number and not same_house_number:
+                a1h = a1_base_house_number or a1_house_number
+                a2h = a2_base_house_number or a2_house_number
+
+                base_house_number_status = is_house_number_duplicate(a1h, a2h, languages=languages)
+                same_house_number = base_house_number_status == duplicate_status.EXACT_DUPLICATE
+                if same_house_number:
+                    house_number_status = duplicate_status.LIKELY_DUPLICATE
+                    house_number_sim = 0.9
+
             if not same_house_number:
-                return (duplicate_status.NON_DUPLICATE, 0.0)
+                return (duplicate_status.NON_DUPLICATE, house_number_sim)
 
         if not have_house_number and not have_street:
             return (duplicate_status.NON_DUPLICATE, 0.0)
 
         if have_street and same_street and (same_house_number or not have_house_number):
-            return (street_status, street_sim)
+            return min((street_status, street_sim), (house_number_status, house_number_sim))
         elif have_house_number and same_house_number:
-            return (house_number_status, 1.0)
+            return (house_number_status, house_number_sim)
         elif have_street and same_street:
             return (street_status, street_sim)
 
@@ -214,9 +237,13 @@ class AddressDeduper(object):
         if languages is None:
             languages = cls.address_languages(address)
 
-        labels, values = cls.address_labels_and_values(address, use_zip5=with_zip5)
-        if not (labels and values and len(labels) == len(values)):
-            return []
+        base_house_number = None
+        address_with_base_house_number = None
+        if AddressComponents.HOUSE_NUMBER_BASE in address:
+            base_house_number = address[AddressComponents.HOUSE_NUMBER_BASE]
+            address = {k: v for k, v in six.iteritems(address) if k != AddressComponents.HOUSE_NUMBER_BASE}
+            address_with_base_house_number = address.copy()
+            address_with_base_house_number[AddressComponents.HOUSE_NUMBER] = base_house_number
 
         if name_only_keys is None:
             name_only_keys = cls.name_only_keys
@@ -227,20 +254,38 @@ class AddressDeduper(object):
         if address_only_keys is None:
             address_only_keys = cls.address_only_keys
 
-        return near_dupe_hashes(labels, values, languages=languages,
-                                with_name=cls.with_name,
-                                with_address=with_address,
-                                with_unit=with_unit,
-                                with_city_or_equivalent=with_city_or_equivalent,
-                                with_small_containing_boundaries=with_small_containing_boundaries,
-                                with_postal_code=with_postal_code,
-                                with_latlon=with_latlon,
-                                latitude=lat,
-                                longitude=lon,
-                                geohash_precision=geohash_precision,
-                                name_and_address_keys=name_and_address_keys,
-                                name_only_keys=name_only_keys,
-                                address_only_keys=cls.address_only_keys)
+        input_address = address
+
+        all_hashes = []
+        all_hashes_set = set()
+
+        for address in (input_address, address_with_base_house_number):
+            if address is None:
+                continue
+
+            labels, values = cls.address_labels_and_values(address, use_zip5=with_zip5)
+            if not (labels and values and len(labels) == len(values)):
+                return []
+
+            hashes = near_dupe_hashes(labels, values, languages=languages,
+                                      with_name=cls.with_name,
+                                      with_address=with_address,
+                                      with_unit=with_unit,
+                                      with_city_or_equivalent=with_city_or_equivalent,
+                                      with_small_containing_boundaries=with_small_containing_boundaries,
+                                      with_postal_code=with_postal_code,
+                                      with_latlon=with_latlon,
+                                      latitude=lat,
+                                      longitude=lon,
+                                      geohash_precision=geohash_precision,
+                                      name_and_address_keys=name_and_address_keys,
+                                      name_only_keys=name_only_keys,
+                                      address_only_keys=cls.address_only_keys)
+
+            all_hashes.extend([h for h in hashes if h not in all_hashes_set])
+            all_hashes_set |= set(hashes)
+
+        return all_hashes
 
 
 class Name(object):
