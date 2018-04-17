@@ -1,6 +1,7 @@
 import six
 from collections import defaultdict, OrderedDict
 from lieu.coordinates import latlon_to_decimal
+from lieu.encoding import safe_decode
 
 
 class AddressComponents:
@@ -170,6 +171,7 @@ class Address(object):
     @classmethod
     def from_geojson(cls, data):
         properties = data.get('properties')
+        properties = {k: safe_decode(v) if k in cls.field_map.aliases else v for k, v in six.iteritems(properties)}
         fields = cls.field_map.replace(properties)
         lon, lat = data.get('geometry', {}).get('coordinates', (None, None))
         try:
@@ -183,3 +185,7 @@ class Address(object):
             fields[Coordinates.LONGITUDE] = lon
 
         return fields
+
+    @classmethod
+    def have_latlon(cls, props):
+        return Coordinates.LATITUDE in props and Coordinates.LONGITUDE in props
