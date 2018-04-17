@@ -88,9 +88,9 @@ class AddressDeduper(object):
         have_base_house_number = a1_base_house_number or a2_base_house_number
         same_house_number = False
         house_number_status = duplicate_status.NON_DUPLICATE
+        house_number_sim = 0.0
 
         if have_house_number:
-            house_number_sim = 0.0
             house_number_status = is_house_number_duplicate(a1_house_number, a2_house_number, languages=languages)
             same_house_number = house_number_status == duplicate_status.EXACT_DUPLICATE
             if same_house_number:
