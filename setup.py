@@ -10,6 +10,7 @@ def main():
             'postal>=1.1.6',
             'leveldb',
             'phonenumbers',
+            'python-geohash',
             'ujson',
             'mrjob',
         ],
