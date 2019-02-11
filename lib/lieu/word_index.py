@@ -17,6 +17,8 @@ class WordIndex(object):
 
         if isclose(n, 0.0):
             n = len(vector)
+            if n == 0:
+                return []
             return [1. / n] * n
         return [s / n for s in vector]
 
@@ -26,6 +28,8 @@ class WordIndex(object):
 
         if isclose(n, 0.0):
             n = len(vector)
+            if n == 0:
+                return []
             return [1. / n] * n
         return [s / n for s in vector]
 

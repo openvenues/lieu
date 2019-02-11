@@ -79,8 +79,9 @@ class AddressDeduper(object):
                 a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
                 a2_street_tokens = Name.content_tokens(a2_street, languages=languages)
                 a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
-                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
-                same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+                if a1_street_tokens and a2_street_tokens and a1_scores_norm and a2_scores_norm:
+                    street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
+                    same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
             if not same_street:
                 return (duplicate_status.NON_DUPLICATE, 0.0)
 
