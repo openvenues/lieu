@@ -10,7 +10,7 @@ from postal.tokenize import tokenize
 from postal.token_types import token_types
 
 from lieu.address import AddressComponents, EntityDetails, Coordinates
-from lieu.api import DedupeResponse
+from lieu.api import Dupe, DedupeResponse, NULL_DUPE
 from lieu.word_index import WordIndex
 
 whitespace_regex = re.compile('[\s]+')
@@ -53,10 +53,10 @@ class AddressDeduper(object):
             a2_base_house_number = a2_base_house_number.strip()
 
         if (a1_street and not a2_street) or (a2_street and not a1_street):
-            return (duplicate_status.NON_DUPLICATE, 0.0)
+            return NULL_DUPE
 
         if (a1_house_number and not a2_house_number) or (a2_house_number and not a1_house_number):
-            return (duplicate_status.NON_DUPLICATE, 0.0)
+            return NULL_DUPE
 
         have_street = a1_street and a2_street
         same_street = False
@@ -79,10 +79,11 @@ class AddressDeduper(object):
                 a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
                 a2_street_tokens = Name.content_tokens(a2_street, languages=languages)
                 a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
-                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
-                same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+                if a1_street_tokens and a2_street_tokens and a1_scores_norm and a2_scores_norm:
+                    street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
+                    same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
             if not same_street:
-                return (duplicate_status.NON_DUPLICATE, 0.0)
+                return Dupe(status=duplicate_status.NON_DUPLICATE, sim=street_sim)
 
         have_house_number = a1_house_number and a2_house_number
         have_base_house_number = a1_base_house_number or a2_base_house_number
@@ -107,24 +108,25 @@ class AddressDeduper(object):
                     house_number_sim = 0.9
 
             if not same_house_number:
-                return (duplicate_status.NON_DUPLICATE, house_number_sim)
+                return Dupe(status=duplicate_status.NON_DUPLICATE, sim=house_number_sim)
 
         if not have_house_number and not have_street:
-            return (duplicate_status.NON_DUPLICATE, 0.0)
+            return NULL_DUPE
 
-        if have_street and same_street and (same_house_number or not have_house_number):
-            return min((street_status, street_sim), (house_number_status, house_number_sim))
-        elif have_house_number and same_house_number:
-            return (house_number_status, house_number_sim)
-        elif have_street and same_street:
-            return (street_status, street_sim)
+        if have_street and same_street and have_house_number and same_house_number:
+            min_status, min_sim = min((street_status, street_sim), (house_number_status, house_number_sim))
+            return Dupe(status=min_status, sim=min_sim)
+        elif have_house_number and same_house_number and not have_street:
+            return Dupe(status=house_number_status, sim=house_number_sim)
+        elif have_street and same_street and not have_house_number:
+            return Dupe(status=street_status, sim=street_sim)
 
-        return (duplicate_status.NON_DUPLICATE, 0.0)
+        return NULL_DUPE
 
     @classmethod
     def is_address_dupe(cls, a1, a2, languages=None, fuzzy_street_name=False):
-        dupe_class, sim = cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
-        return dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+        dupe = cls.address_dupe_status(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
+        return dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
 
     @classmethod
     def one_address_is_missing_field(cls, field, a1, a2):
@@ -281,6 +283,7 @@ class AddressDeduper(object):
                                       name_and_address_keys=name_and_address_keys,
                                       name_only_keys=name_only_keys,
                                       address_only_keys=cls.address_only_keys)
+            hashes = hashes or []
 
             all_hashes.extend([h for h in hashes if h not in all_hashes_set])
             all_hashes_set |= set(hashes)
@@ -332,7 +335,7 @@ class PhoneNumberDeduper(object):
         elif dupe_class == duplicate_status.LIKELY_DUPLICATE and different_phone_number:
             dupe_class = duplicate_status.NEEDS_REVIEW
 
-        return dupe_class
+        return dupe_class, same_phone_number
 
 
 class NameAddressDeduper(AddressDeduper):
@@ -377,7 +380,7 @@ class NameAddressDeduper(AddressDeduper):
         a1_name = a1.get(AddressComponents.NAME)
         a2_name = a2.get(AddressComponents.NAME)
         if not a1_name or not a2_name:
-            return None, 0.0
+            return NULL_DUPE
 
         a1_languages = cls.address_languages(a1)
         a2_languages = cls.address_languages(a2)
@@ -387,37 +390,43 @@ class NameAddressDeduper(AddressDeduper):
         if with_address:
             same_address = cls.is_address_dupe(a1, a2, languages=languages, fuzzy_street_name=fuzzy_street_name)
             if not same_address:
-                return None, 0.0
+                return NULL_DUPE
 
         if with_unit:
             same_unit = cls.is_sub_building_dupe(a1, a2, languages=languages)
             if not same_unit:
-                return None, 0.0
+                return NULL_DUPE
 
         name_dupe_class = cls.name_dupe_status(a1_name, a2_name, languages=languages)
+        name_sim = 0.0
+
         if name_dupe_class == duplicate_status.EXACT_DUPLICATE:
-            return duplicate_status.EXACT_DUPLICATE, 1.0
-        elif word_index:
-            name_fuzzy_dupe_class, name_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
-
-            if with_phone_number:
-                name_fuzzy_dupe_class = PhoneNumberDeduper.revised_dupe_class(name_fuzzy_dupe_class, a1, a2)
-            if name_fuzzy_dupe_class >= name_dupe_class:
-                return name_fuzzy_dupe_class, name_sim
-
-        if name_dupe_class == duplicate_status.LIKELY_DUPLICATE:
+            name_sim = 1.0
+        elif name_dupe_class == duplicate_status.LIKELY_DUPLICATE:
             name_sim = likely_dupe_threshold
         elif name_dupe_class == duplicate_status.NEEDS_REVIEW:
             name_sim = needs_review_threshold
         else:
-            return None, 0.0
+            return NULL_DUPE
 
-        return name_dupe_class, name_sim
+        if word_index and name_dupe_class != duplicate_status.EXACT_DUPLICATE:
+            name_fuzzy_dupe_class, name_fuzzy_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
+
+            if name_fuzzy_dupe_class >= name_dupe_class:
+                name_dupe_class = name_fuzzy_dupe_class
+                name_sim = name_fuzzy_sim
+
+        phone_number_dupe = None
+
+        if with_phone_number:
+            name_dupe_class, phone_number_dupe = PhoneNumberDeduper.revised_dupe_class(name_dupe_class, a1, a2)
+
+        return Dupe(name_dupe_class, name_sim, same_phone_number=phone_number_dupe)
 
     @classmethod
     def is_dupe(cls, a1, a2, index=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False, fuzzy_street_name=False):
-        dupe_class, sim = cls.dupe_class_and_sim(a1, a2, index=index, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit, fuzzy_street_name=fuzzy_street_name)
-        return dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+        dupe = cls.dupe_class_and_sim(a1, a2, index=index, name_dupe_threshold=name_dupe_threshold, with_unit=with_unit, fuzzy_street_name=fuzzy_street_name)
+        return dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
 
     @classmethod
     def name_dupe_status(cls, name1, name2, languages=None):
