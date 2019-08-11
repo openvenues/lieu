@@ -3,7 +3,7 @@ from operator import itemgetter
 from postal.dedupe import duplicate_status
 
 
-class DedupeResponse(object):
+class Dupe(object):
     class classifications:
         NEEDS_REVIEW = 'needs_review'
         LIKELY_DUPE = 'likely_dupe'
@@ -15,9 +15,45 @@ class DedupeResponse(object):
         duplicate_status.NEEDS_REVIEW: classifications.NEEDS_REVIEW,
     }
 
+    def __init__(self, status, sim, same_phone=None):
+        self.status = status
+        self.sim = sim
+        self.same_phone = same_phone
+
+    def __eq__(self, other):
+        return (self.status, self.sim) == (other.status, other.sim)
+
+    def __ne__(self, other):
+        return (self.status, self.sim) != (other.status, other.sim)
+
+    def __gt__(self, other):
+        return (self.status, self.sim) > (other.status, other.sim)
+
+    def __ge__(self, other):
+        return (self.status, self.sim) >= (other.status, other.sim)
+
+    def __lt__(self, other):
+        return (self.status, self.sim) < (other.status, other.sim)
+
+    def __le__(self, other):
+        return (self.status, self.sim) <= (other.status, other.sim)
+
+    def __repr__(self):
+        return u'Dupe(status={}, sim={}{})'.format(self.dupe_class_map.get(self.status),
+                                                   self.sim,
+                                                   u'' if self.same_phone is None else u'same_phone={}'.format(self.same_phone))
+
+
+
+
+NULL_DUPE = Dupe(duplicate_status.NON_DUPLICATE, sim=0.0)
+
+
+class DedupeResponse(object):
+
     @classmethod
     def string_dupe_class(cls, dupe_class):
-        return cls.dupe_class_map.get(dupe_class)
+        return Dupe.dupe_class_map.get(dupe_class)
 
     class deduping_types:
         NAME_ADDRESS = 'name+address'
@@ -74,27 +110,27 @@ class DedupeResponse(object):
         }
 
     @classmethod
-    def add_possible_dupe(cls, response, value, classification, is_canonical, similarity, explain=None):
-        if classification in (cls.classifications.EXACT_DUPE, cls.classifications.LIKELY_DUPE):
+    def add_possible_dupe(cls, response, value, dupe, is_canonical, explain=None):
+        if dupe.status in (cls.classifications.EXACT_DUPE, cls.classifications.LIKELY_DUPE):
             key = 'same_as'
-        elif classification == cls.classifications.NEEDS_REVIEW:
+        elif dupe.status == cls.classifications.NEEDS_REVIEW:
             key = 'possibly_same_as'
         else:
             return response
 
         response.setdefault(key, [])
-        dupe = {
+        dupe_response = {
             'is_canonical': is_canonical,
-            'classification': classification,
+            'classification': dupe.status,
             'object': value,
         }
 
-        if similarity is not None:
-            dupe.update(similarity=min(similarity, 1.0))
+        if dupe.sim is not None:
+            dupe_response.update(similarity=min(dupe.sim, 1.0))
 
         if explain:
-            dupe['explain'] = explain
-        response[key].append(dupe)
+            dupe_response['explain'] = explain
+        response[key].append(dupe_response)
 
         return response
 
