@@ -1,4 +1,4 @@
-#!/usr/env/bin python
+#!/usr/env/bin python -u
 
 import argparse
 import leveldb
@@ -14,7 +14,7 @@ import ujson as json
 from collections import OrderedDict, defaultdict
 
 from lieu.address import Address, AddressComponents, Coordinates
-from lieu.api import DedupeResponse
+from lieu.api import DedupeResponse, NULL_DUPE
 from lieu.dedupe import NameAddressDeduper, AddressDeduper, Name
 from lieu.encoding import safe_encode, safe_decode
 from lieu.information_gain import InformationGainBuilder
@@ -88,10 +88,10 @@ def db_get_address(features_db, feature_id):
 
 def is_address_dupe(canonical, other, dupe_pairs, dupes, with_unit=False, fuzzy_street_names=False):
     address_languages = AddressDeduper.combined_place_languages(canonical, other)
-    dupe_class, sim = AddressDeduper.address_dupe_status(canonical, other, languages=address_languages, fuzzy_street_name=fuzzy_street_names)
-    if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and (not with_unit or AddressDeduper.is_sub_building_dupe(canonical, other, languages=languages)):
-        dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
-        dupes[other_id] = max((dupe_class, sim), dupes.get(other_id, (duplicate_status.NON_DUPLICATE, 0.0)))
+    dupe = AddressDeduper.address_dupe_status(canonical, other, languages=address_languages, fuzzy_street_name=fuzzy_street_names)
+    if dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and (not with_unit or AddressDeduper.is_sub_building_dupe(canonical, other, languages=languages)):
+        dupe_pairs[other_id][canonical_id] = dupe
+        dupes[other_id] = max(dupe, dupes.get(other_id, NULL_DUPE))
         return True
     return False
 
@@ -104,23 +104,23 @@ def is_name_address_dupe(canoncal, other, dupe_pairs, dupes, word_index=None,
                          use_phone_number=False,
                          fuzzy_street_names=False):
     if not address_only:
-        dupe_class, sim = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
-                                                                likely_dupe_threshold=name_dupe_threshold,
-                                                                needs_review_threshold=name_review_threshold,
-                                                                with_address=with_address,
-                                                                with_unit=with_unit,
-                                                                with_phone_number=use_phone_number,
-                                                                fuzzy_street_name=fuzzy_street_names)
+        dupe = NameAddressDeduper.dupe_class_and_sim(canonical, other, word_index=word_index,
+                                                     likely_dupe_threshold=name_dupe_threshold,
+                                                     needs_review_threshold=name_review_threshold,
+                                                     with_address=with_address,
+                                                     with_unit=with_unit,
+                                                     with_phone_number=use_phone_number,
+                                                     fuzzy_street_name=fuzzy_street_names)
 
-        if dupe_class is not None:
+        if dupe is not NULL_DUPE:
             if canonical_id in dupe_pairs[other_id]:
-                existing_dupe_class, existing_sim = dupe_pairs[other_id][canonical_id]
-                if existing_dupe_class > dupe_class or (existing_dupe_class == dupe_class and existing_sim > sim):
+                existing_dupe = dupe_pairs[other_id][canonical_id]
+                if existing_dupe.status > dupe.status or (existing_dupe.status == dupe.status and existing_dupe.sim > dupe.sim):
                     return False
-            dupe_pairs[other_id][canonical_id] = (dupe_class, sim)
+            dupe_pairs[other_id][canonical_id] = dupe
 
-            if dupe_class in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
-                dupes[other_id] = max((dupe_class, sim), dupes.get(other_id, (duplicate_status.NON_DUPLICATE, 0.0)))
+            if dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
+                dupes[other_id] = max(dupe, dupes.get(other_id, NULL_DUPE))
                 return True
     return False
 
