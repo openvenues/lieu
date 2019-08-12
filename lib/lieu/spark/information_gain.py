@@ -17,7 +17,7 @@ class InformationGainSpark(object):
         if not has_id:
             docs = docs.zipWithUniqueId()
 
-        return docs.flatMap(lambda (doc, doc_id): [((word, other), 1) for word, other in itertools.permutations(Name.content_tokens(doc), 2)]) \
+        return docs.flatMap(lambda (doc, doc_id): [((word, other), 1) for word, other in itertools.permutations(doc, 2)]) \
                    .reduceByKey(lambda x, y: x + y)
 
     @classmethod
@@ -30,7 +30,7 @@ class InformationGainSpark(object):
             docs = docs.zipWithUniqueId()
 
         doc_words = docs.flatMap(lambda (doc, doc_id): [(word, (doc_id, i))
-                                                        for i, word in enumerate(Name.content_tokens(doc))])
+                                                        for i, word in enumerate(doc)])
         return doc_words
 
     @classmethod
@@ -38,7 +38,7 @@ class InformationGainSpark(object):
         if not has_id:
             docs = docs.zipWithUniqueId()
 
-        marginals = docs.flatMap(lambda (doc, doc_id): [(word, 1) for word in set(Name.content_tokens(doc))]) \
+        marginals = docs.flatMap(lambda (doc, doc_id): [(word, 1) for word in set(doc)]) \
                         .reduceByKey(lambda x, y: x + y)
 
         if min_count > 1:
@@ -95,7 +95,7 @@ class GeoInformationGainSpark(InformationGainSpark, GeoWordIndexSpark):
         else:
             doc_geohashes = docs.flatMap(lambda ((doc, lat, lon), doc_id): [(geo, (doc, doc_id)) for geo in cls.geohashes(lat, lon)])
 
-        return doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word, other), 1) for word, other in itertools.permutations(Name.content_tokens(doc), 2)]) \
+        return doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word, other), 1) for word, other in itertools.permutations(doc, 2)]) \
                             .reduceByKey(lambda x, y: x + y)
 
     @classmethod
@@ -113,7 +113,7 @@ class GeoInformationGainSpark(InformationGainSpark, GeoWordIndexSpark):
             doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.geohash(lat, lon, geohash_precision=geohash_precision), (doc, doc_id)))
 
         doc_words = doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word), (doc_id, pos))
-                                                                        for pos, word in enumerate(Name.content_tokens(doc))])
+                                                                        for pos, word in enumerate(doc)])
         return doc_words
 
     @classmethod
@@ -131,7 +131,7 @@ class GeoInformationGainSpark(InformationGainSpark, GeoWordIndexSpark):
         else:
             doc_geohashes = docs.flatMap(lambda ((doc, lat, lon), doc_id): [(gh, (doc, doc_id)) for gh in cls.geohashes(lat, lon)])
 
-        marginals = doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word), 1) for word in set(Name.content_tokens(doc))]) \
+        marginals = doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word), 1) for word in set(doc)]) \
                                  .reduceByKey(lambda x, y: x + y)
 
         if min_count > 1:

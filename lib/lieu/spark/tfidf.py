@@ -18,7 +18,7 @@ class TFIDFSpark(object):
             docs = docs.zipWithUniqueId()
 
         doc_words = docs.flatMap(lambda (doc, doc_id): [(word, (doc_id, pos))
-                                                        for pos, word in enumerate(Name.content_tokens(doc))])
+                                                        for pos, word in enumerate(doc)])
         return doc_words
 
     @classmethod
@@ -27,7 +27,7 @@ class TFIDFSpark(object):
             docs = docs.zipWithUniqueId()
 
         doc_word_counts = docs.flatMap(lambda (doc, doc_id): [(word, (doc_id, count))
-                                                              for word, count in six.iteritems(Counter(Name.content_tokens(doc)))])
+                                                              for word, count in six.iteritems(Counter(doc))])
         return doc_word_counts
 
     @classmethod
@@ -74,7 +74,7 @@ class GeoTFIDFSpark(TFIDFSpark, GeoWordIndexSpark):
             doc_geohashes = docs.map(lambda ((doc, lat, lon), doc_id): (cls.geohash(lat, lon, geohash_precision=geohash_precision), (doc, doc_id)))
 
         doc_words = doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word), (doc_id, pos))
-                                                                        for pos, word in enumerate(Name.content_tokens(doc))])
+                                                                        for pos, word in enumerate(doc)])
         return doc_words
 
     @classmethod
@@ -92,7 +92,7 @@ class GeoTFIDFSpark(TFIDFSpark, GeoWordIndexSpark):
             doc_geohashes = docs.flatMap(lambda ((doc, lat, lon), doc_id): [(gh, (doc, doc_id)) for gh in cls.geohashes(lat, lon)])
 
         doc_word_counts = doc_geohashes.flatMap(lambda (geo, (doc, doc_id)): [((geo, word), (doc_id, count))
-                                                                              for word, count in six.iteritems(Counter(Name.content_tokens(doc)))])
+                                                                              for word, count in six.iteritems(Counter(doc))])
         return doc_word_counts
 
     @classmethod
@@ -141,3 +141,8 @@ class GeoTFIDFSpark(TFIDFSpark, GeoWordIndexSpark):
                                        .mapValues(lambda vals: [(word, TFIDF.tfidf_score(1.0, doc_frequency, num_docs)) for word, pos, doc_frequency, num_docs in sorted(vals, key=operator.itemgetter(1))])
 
         return docs_tfidf.coalesce(num_partitions)
+
+    @classmethod
+    def save(cls, word_info_gain, index_path):
+        word_info_gain.map(lambda ((geo, word), val): u'\t'.join([geo, word, val])) \
+                      .saveAsTextFile(index_path)
