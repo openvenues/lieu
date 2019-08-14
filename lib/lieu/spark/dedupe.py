@@ -22,6 +22,7 @@ class AddressDeduperSpark(object):
 
     @classmethod
     def match(cls, address_ids_canonical, address_ids_to_match, with_unit=False, with_city_or_equivalent=False, with_small_containing_boundaries=False, with_postal_code=False, with_latlon=True, fuzzy_street=False):
+        num_partitions = max(address_ids_canonical.getNumPartitions(), address_ids_to_match.getNumPartitions())
         addresses_and_languages_canonical = cls.addresses_and_languages(address_ids_canonical)
         addresses_and_languages_to_match = cls.addresses_and_languages(address_ids_to_match)
 
@@ -34,7 +35,7 @@ class AddressDeduperSpark(object):
         candidate_dupe_pairs = address_hashes_canonical.groupByKey() \
                                                        .join(address_hashes_to_match.groupByKey()) \
                                                        .values() \
-                                                       .flatMap(lambda (vals1, vals2): [(v1, v2) for v1, v2 in itertools.product(vals1, vals2) if v1 != v2]) \
+                                                       .flatMap(lambda (vals1, vals2): [(v1, v2) for v1, v2 in itertools.product(vals1, vals2)]) \
                                                        .distinct()
 
         candidate_dupe_pairs = IDPairRDD.join_pairs_multi_kv(candidate_dupe_pairs, addresses_and_languages_canonical, addresses_and_languages_to_match) \
@@ -44,22 +45,45 @@ class AddressDeduperSpark(object):
                                          .filter(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): address_dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and is_sub_building_dupe) \
                                          .map(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): ((uid1, uid2), address_dupe))
 
-        return dupe_pairs
+        return dupe_pairs.coalesce(num_partitions)
+
+    @classmethod
+    def dupe_pairs_from_candidates(cls, candidate_dupes, sub_building=False, fuzzy_street_name=False):
+        return candidate_dupes.mapValues(lambda (a1, a2, all_langs): (AddressDeduper.address_dupe_status(a1, a2, languages=all_langs, fuzzy_street_name=fuzzy_street_name), (not sub_building or AddressDeduper.is_sub_building_dupe(a1, a2, languages=all_langs)))) \
+                              .filter(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): address_dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and is_sub_building_dupe) \
+                              .map(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): ((uid1, uid2), address_dupe))
 
     @classmethod
     def address_dupe_pairs(cls, address_hashes, addresses_and_languages, sub_building=False, fuzzy_street_name=False, household=False):
+        num_partitions = addresses_and_languages.getNumPartitions()
         candidate_dupe_pairs = address_hashes.groupByKey() \
                                              .filter(lambda (key, vals): len(vals) > 1) \
-                                             .values() \
-                                             .flatMap(lambda vals: [(max(uid1, uid2), min(uid1, uid2)) for uid1, uid2 in itertools.combinations(vals, 2)]) \
-                                             .distinct()
+                                             .values()
 
-        candidate_dupe_pairs = IDPairRDD.join_pairs(candidate_dupe_pairs, addresses_and_languages) \
-                                        .mapValues(lambda ((a1, langs1), (a2, langs2)): (a1, a2, AddressDeduper.combined_languages(langs1, langs2)))
+        candidate_dupe_pairs_min_values = candidate_dupe_pairs.map(lambda values: (min(values), values)) \
+                                                              .map(lambda (min_value, values): (min_value, [v for v in values if v != min_value]))
 
-        dupe_pairs = candidate_dupe_pairs.mapValues(lambda (a1, a2, all_langs): (AddressDeduper.address_dupe_status(a1, a2, languages=all_langs, fuzzy_street_name=fuzzy_street_name), (not sub_building or AddressDeduper.is_sub_building_dupe(a1, a2, languages=all_langs)))) \
-                                         .filter(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): address_dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and is_sub_building_dupe) \
-                                         .map(lambda ((uid1, uid2), (address_dupe, is_sub_building_dupe)): ((uid1, uid2), address_dupe))
+        candidate_dupe_pairs_pass_1 = candidate_dupe_pairs_min_values.flatMap(lambda (min_value, other_values): [(value, min_value) for value in other_values]) \
+                                                                     .distinct()
+
+        candidate_dupes_pass_1 = IDPairRDD.join_pairs(candidate_dupe_pairs_pass_1, addresses_and_languages) \
+                                          .mapValues(lambda ((a1, langs1), (a2, langs2)): (a1, a2, AddressDeduper.combined_languages(langs1, langs2)))
+
+        dupe_pairs_pass_1 = cls.dupe_pairs_from_candidates(candidate_dupes_pass_1, sub_building=sub_building, fuzzy_street_name=fuzzy_street_name) \
+                               .coalesce(num_partitions)
+
+        candidate_dupe_pairs_pass_2 = candidate_dupe_pairs_min_values.flatMap(lambda (min_value, other_values): [(other_value, other_values) for other_value in other_values]) \
+                                                                     .subtractByKey(dupe_pairs_pass_1.keys()) \
+                                                                     .flatMap(lambda (value, other_values): [(max(value, uid), min(value, uid)) for uid in other_values if uid != value]) \
+                                                                     .distinct()
+
+        candidate_dupes_pass_2 = IDPairRDD.join_pairs(candidate_dupe_pairs_pass_2, addresses_and_languages) \
+                                          .mapValues(lambda ((a1, langs1), (a2, langs2)): (a1, a2, AddressDeduper.combined_languages(langs1, langs2)))
+
+        dupe_pairs_pass_2 = cls.dupe_pairs_from_candidates(candidate_dupes_pass_2, sub_building=sub_building, fuzzy_street_name=fuzzy_street_name) \
+                               .coalesce(num_partitions)
+
+        dupe_pairs = dupe_pairs_pass_1.union(dupe_pairs_pass_2).coalesce(num_partitions)
 
         return dupe_pairs
 
@@ -74,6 +98,7 @@ class AddressDeduperSpark(object):
 
     @classmethod
     def dupe_sims(cls, address_ids, with_unit=False, with_city_or_equivalent=False, with_small_containing_boundaries=False, with_postal_code=False, with_latlon=True, fuzzy_street=False):
+        num_partitions = address_ids.getNumPartitions()
         addresses_and_languages = cls.addresses_and_languages(address_ids)
         address_hashes = cls.address_hashes(addresses_and_languages, with_unit=with_unit, with_city_or_equivalent=with_city_or_equivalent, \
                                             with_small_containing_boundaries=with_small_containing_boundaries, with_postal_code=with_postal_code, with_latlon=with_latlon)
@@ -85,9 +110,9 @@ class AddressDeduperSpark(object):
         id_address = address_ids.map(lambda (address, uid): (uid, address))
         dupe_sims = cls.dupe_sims(address_ids, with_unit=with_unit, with_city_or_equivalent=with_city_or_equivalent, with_small_containing_boundaries=with_small_containing_boundaries,
                                   with_postal_code=with_postal_code, with_latlon=with_latlon, fuzzy_street=fuzzy_street)
-        unique_ids = dupe_sims.filter(lambda ((uid1, uid2), status): status.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)) \
-                              .keys().values().distinct().subtract(dupe_sims.keys().keys())
-        return id_address.join(unique_ids.map(lambda key: (key, None))).map(lambda (uid, (addr, _)): (addr, uid))                               
+        dupes = dupe_sims.filter(lambda ((uid1, uid2), status): status.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE))
+
+        return id_address.subtractByKey(dupes.keys()).map(lambda (uid, addr): (addr, uid))
 
 
 class NameAddressDeduperSpark(object):
