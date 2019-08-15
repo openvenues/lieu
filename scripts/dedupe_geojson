@@ -56,25 +56,25 @@ def id_features(filenames):
 
 def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
     value = json.loads(value)
-    is_dupe = any((status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) for other_id, (status, sim) in dupe_pairs.get(feature_id, {}).items()))
+    is_dupe = any((dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) for other_id, dupe in dupe_pairs.get(feature_id, {}).items()))
     if not is_dupe:
         guid = value_guid(value)
         DedupeResponse.add_guid(value, guid)
     response = DedupeResponse.base_response(value, is_dupe)
 
     if feature_id in dupe_pairs:
-        for other_id, (status, sim) in sorted(dupe_pairs[feature_id].items(), key=operator.itemgetter(1), reverse=True):
+        for other_id, dupe in sorted(dupe_pairs[feature_id].items(), reverse=True):
             other_value = json.loads(features_db.Get(db_key(other_id)))
 
             is_canonical = other_id not in dupes
 
-            classification = DedupeResponse.string_dupe_class(status)
+            classification = DedupeResponse.string_dupe_class(dupe.status)
 
             if is_canonical:
                 other_guid = value_guid(other_value)
                 DedupeResponse.add_guid(other_value, other_guid)
 
-            DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=sim, explain=explain)
+            DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=dupe.sim, explain=explain)
     return response
 
 

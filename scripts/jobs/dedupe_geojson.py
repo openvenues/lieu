@@ -92,13 +92,13 @@ class DedupeGeoJSONJob(MRJob):
 
         self.add_passthrough_option(
             '--name-dupe-threshold',
-            type='float',
+            type=float,
             default=DedupeResponse.default_name_dupe_threshold,
             help='Likely-dupe threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
         self.add_passthrough_option(
             '--name-review-threshold',
-            type='float',
+            type=float,
             default=DedupeResponse.default_name_review_threshold,
             help='Human review threshold between 0 and 1 for name deduping with Soft-TFIDF')
 
@@ -134,7 +134,7 @@ class DedupeGeoJSONJob(MRJob):
         address_only_candidates = self.options.address_only_candidates
         use_latlon = self.options.use_latlon
         use_city = self.options.use_city
-        use_containing = self.options.use_containing
+        use_small_containing = self.options.use_small_containing
         use_postal_code = self.options.use_postal_code
         fuzzy_street_name = self.options.fuzzy_street_names
         geo_model_proportion = self.options.geo_model_proportion
@@ -149,7 +149,7 @@ class DedupeGeoJSONJob(MRJob):
             name_and_address_keys = with_address
             address_only_keys = address_only_candidates
             name_only_keys = name_only
-            dupes_with_classes_and_sims = NameAddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, geo_model_proportion=geo_model_proportion, index_type=index_type, name_dupe_threshold=name_dupe_threshold, name_review_threshold=name_review_threshold, with_address=with_address, with_unit=with_unit, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, fuzzy_street_name=fuzzy_street_name, with_phone_number=with_phone_number, name_and_address_keys=name_and_address_keys, name_only_keys=name_only_keys, address_only_keys=address_only_keys)
+            dupes_with_classes_and_sims = NameAddressDeduperSpark.dupe_sims(address_ids, geo_model=geo_model, geo_model_proportion=geo_model_proportion, index_type=index_type, name_dupe_threshold=name_dupe_threshold, name_review_threshold=name_review_threshold, with_address=with_address, with_unit=with_unit, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_small_containing, with_postal_code=use_postal_code, fuzzy_street_name=fuzzy_street_name, with_phone_number=with_phone_number, name_and_address_keys=name_and_address_keys, name_only_keys=name_only_keys, address_only_keys=address_only_keys)
         else:
             dupes_with_classes_and_sims = AddressDeduperSpark.dupe_sims(address_ids, with_unit=with_unit, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, fuzzy_street_name=fuzzy_street_name)
 
@@ -170,8 +170,8 @@ class DedupeGeoJSONJob(MRJob):
                                                           .map(lambda (uid2, ((uid1, classification, sim), is_canonical)): ((uid1, uid2), (classification, is_canonical or False, sim)))
 
         if not self.options.address_only:
-            explain = DedupeResponse.explain_name_address_dupe(name_dupe_threshold=self.options.name_dupe_threshold,
-                                                               name_review_threshold=self.options.name_review_threshold,
+            explain = DedupeResponse.explain_name_address_dupe(name_likely_dupe_threshold=self.options.name_dupe_threshold,
+                                                               name_needs_review_threshold=self.options.name_review_threshold,
                                                                with_unit=self.options.with_unit)
         else:
             explain = DedupeResponse.explain_address_dupe(with_unit=self.options.with_unit)

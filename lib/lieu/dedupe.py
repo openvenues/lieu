@@ -11,7 +11,9 @@ from postal.token_types import token_types
 
 from lieu.address import AddressComponents, EntityDetails, Coordinates
 from lieu.api import Dupe, DedupeResponse, NULL_DUPE
+from lieu.encoding import safe_decode
 from lieu.word_index import WordIndex
+
 
 whitespace_regex = re.compile('[\s]+')
 
@@ -40,17 +42,17 @@ class AddressDeduper(object):
         a2_house_number = a2.get(AddressComponents.HOUSE_NUMBER)
 
         if a1_house_number:
-            a1_house_number = a1_house_number.strip()
+            a1_house_number = safe_decode(a1_house_number).strip()
         if a2_house_number:
-            a2_house_number = a2_house_number.strip()
+            a2_house_number = safe_decode(a2_house_number).strip()
 
         a1_base_house_number = a1.get(AddressComponents.HOUSE_NUMBER_BASE)
         a2_base_house_number = a2.get(AddressComponents.HOUSE_NUMBER_BASE)
 
         if a1_base_house_number:
-            a1_base_house_number = a1_base_house_number.strip()
+            a1_base_house_number = safe_decode(a1_base_house_number).strip()
         if a2_base_house_number:
-            a2_base_house_number = a2_base_house_number.strip()
+            a2_base_house_number = safe_decode(a2_base_house_number).strip()
 
         if (a1_street and not a2_street) or (a2_street and not a1_street):
             return NULL_DUPE
