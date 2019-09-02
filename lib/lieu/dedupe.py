@@ -18,6 +18,53 @@ from lieu.word_index import WordIndex
 whitespace_regex = re.compile('[\s]+')
 
 
+DEFAULT_LANGUAGES = ['en']
+
+
+def combined_languages(languages1, languages2):
+    languages_set1 = set(languages1)
+
+    return languages1 + [lang for lang in languages2 if lang not in languages_set1]
+
+
+class StreetDeduper(object):
+    @classmethod
+    def street_dupe_status(cls, street1, street2, languages=None, fuzzy=False):
+        if languages is None:
+            languages1 = place_languages(['road'], [street1])
+            languages2 = place_languages(['road'], [street2])
+            if languages1 is not None and languages2 is not None:
+                languages = combined_languages(languages1, languages2)
+            else:
+                languages = languages1 or languages2 or DEFAULT_LANGUAGES
+
+        street_status = is_street_duplicate(street1, street2, languages=languages)
+        same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+        if street_status == duplicate_status.EXACT_DUPLICATE:
+            street_sim = 1.0
+        elif street_status == duplicate_status.NEEDS_REVIEW:
+            street_sim = 0.5
+        elif street_status == duplicate_status.LIKELY_DUPLICATE:
+            street_sim = 0.9
+        else:
+            street_sim = 0.0
+
+        if same_street:
+            return Dupe(status=street_status, sim=street_sim)
+        elif fuzzy:
+            a1_street_tokens = Name.content_tokens(street1, languages=languages)
+            a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
+            a2_street_tokens = Name.content_tokens(street2, languages=languages)
+            a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
+            if a1_street_tokens and a2_street_tokens and a1_scores_norm and a2_scores_norm:
+                street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
+                return Dupe(status=street_status, sim=street_sim)
+            else:
+                return Dupe(status=duplicate_status.NON_DUPLICATE, sim=street_sim)
+        else:
+            return Dupe(status=duplicate_status.NON_DUPLICATE, sim=street_sim)
+
+
 class AddressDeduper(object):
     DEFAULT_GEOHASH_PRECISION = 7
 
@@ -66,24 +113,9 @@ class AddressDeduper(object):
 
         street_sim = 0.0
         if have_street:
-            street_status = is_street_duplicate(a1_street, a2_street, languages=languages)
-            same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
-            if street_status == duplicate_status.EXACT_DUPLICATE:
-                street_sim = 1.0
-            elif street_status == duplicate_status.NEEDS_REVIEW:
-                street_sim = 0.5
-            elif street_status == duplicate_status.LIKELY_DUPLICATE:
-                street_sim = 0.9
-            else:
-                street_sim = 0.0
-            if not same_street and fuzzy_street_name:
-                a1_street_tokens = Name.content_tokens(a1_street, languages=languages)
-                a1_scores_norm = WordIndex.normalized_vector([1] * len(a1_street_tokens))
-                a2_street_tokens = Name.content_tokens(a2_street, languages=languages)
-                a2_scores_norm = WordIndex.normalized_vector([1] * len(a2_street_tokens))
-                if a1_street_tokens and a2_street_tokens and a1_scores_norm and a2_scores_norm:
-                    street_status, street_sim = is_street_duplicate_fuzzy(a1_street_tokens, a1_scores_norm, a2_street_tokens, a2_scores_norm, languages=languages)
-                    same_street = street_status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+            street_dupe_status = StreetDeduper.street_dupe_status(a1_street, a2_street, languages=languages, fuzzy=fuzzy_street_name)
+            same_street = street_dupe_status.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE)
+
             if not same_street:
                 return Dupe(status=duplicate_status.NON_DUPLICATE, sim=street_sim)
 
@@ -116,7 +148,7 @@ class AddressDeduper(object):
             return NULL_DUPE
 
         if have_street and same_street and have_house_number and same_house_number:
-            min_status, min_sim = min((street_status, street_sim), (house_number_status, house_number_sim))
+            min_status, min_sim = min((street_dupe_status.status, street_dupe_status.sim), (house_number_status, house_number_sim))
             return Dupe(status=min_status, sim=min_sim)
         elif have_house_number and same_house_number and not have_street:
             return Dupe(status=house_number_status, sim=house_number_sim)
