@@ -15,10 +15,10 @@ class Dupe(object):
         duplicate_status.NEEDS_REVIEW: classifications.NEEDS_REVIEW,
     }
 
-    def __init__(self, status, sim, same_phone=None):
+    def __init__(self, status, sim, same_phone_number=None):
         self.status = status
         self.sim = sim
-        self.same_phone = same_phone
+        self.same_phone_number = same_phone_number
 
     def __eq__(self, other):
         return (self.status, self.sim) == (other.status, other.sim)
@@ -41,7 +41,7 @@ class Dupe(object):
     def __repr__(self):
         return u'Dupe(status={}, sim={}{})'.format(self.dupe_class_map.get(self.status),
                                                    self.sim,
-                                                   u'' if self.same_phone is None else u'same_phone={}'.format(self.same_phone))
+                                                   u'' if self.same_phone_number is None else u'same_phone_number={}'.format(self.same_phone_number))
 
 
 
