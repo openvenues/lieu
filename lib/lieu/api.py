@@ -4,17 +4,6 @@ from postal.dedupe import duplicate_status
 
 
 class Dupe(object):
-    class classifications:
-        NEEDS_REVIEW = 'needs_review'
-        LIKELY_DUPE = 'likely_dupe'
-        EXACT_DUPE = 'exact_dupe'
-
-    dupe_class_map = {
-        duplicate_status.LIKELY_DUPLICATE: classifications.LIKELY_DUPE,
-        duplicate_status.EXACT_DUPLICATE: classifications.EXACT_DUPE,
-        duplicate_status.NEEDS_REVIEW: classifications.NEEDS_REVIEW,
-    }
-
     def __init__(self, status, sim, same_phone_number=None):
         self.status = status
         self.sim = sim
@@ -39,7 +28,7 @@ class Dupe(object):
         return (self.status, self.sim) <= (other.status, other.sim)
 
     def __repr__(self):
-        return u'Dupe(status={}, sim={}{})'.format(self.dupe_class_map.get(self.status),
+        return u'Dupe(status={}, sim={}{})'.format(self.status.name,
                                                    self.sim,
                                                    u'' if self.same_phone_number is None else u'same_phone_number={}'.format(self.same_phone_number))
 
@@ -111,9 +100,9 @@ class DedupeResponse(object):
 
     @classmethod
     def add_possible_dupe(cls, response, value, dupe, is_canonical, explain=None):
-        if dupe.status in (cls.classifications.EXACT_DUPE, cls.classifications.LIKELY_DUPE):
+        if dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE):
             key = 'same_as'
-        elif dupe.status == cls.classifications.NEEDS_REVIEW:
+        elif dupe.status == duplicate_status.NEEDS_REVIEW:
             key = 'possibly_same_as'
         else:
             return response

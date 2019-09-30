@@ -68,13 +68,11 @@ def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
 
             is_canonical = other_id not in dupes
 
-            classification = DedupeResponse.string_dupe_class(dupe.status)
-
             if is_canonical:
                 other_guid = value_guid(other_value)
                 DedupeResponse.add_guid(other_value, other_guid)
 
-            DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=dupe.sim, explain=explain)
+            DedupeResponse.add_possible_dupe(response, value=other_value, dupe=dupe, is_canonical=is_canonical, explain=explain)
     return response
 
 
