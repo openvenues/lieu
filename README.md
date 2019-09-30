@@ -1,4 +1,7 @@
 # lieu
+
+[![Build Status](https://travis-ci.com/scoutbee/lieu.svg?branch=master)](https://travis-ci.com/scoutbee/lieu)
+
 lieu is a Python library for deduping venues and addresses around the world using [libpostal](https://github.com/openvenues/libpostal)'s international street address normalization.
 
 ## Installation
