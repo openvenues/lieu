@@ -1,0 +1,27 @@
+language: python
+python:
+  - "2.7"
+  # - "3.7.3"  # TODO
+
+cache: pip
+dist: xenial
+
+before_install:
+  - pip install awscli
+  - aws s3 cp s3://sb-packages-public/deb/libpostal_21601eb4b8941b8d9b795b1d6db4bd376f5b28_amd64.stretch.deb .
+  - sudo dpkg -i libpostal_21601eb4b8941b8d9b795b1d6db4bd376f5b28_amd64.stretch.deb
+
+jobs:
+  include:
+    - stage: build
+      
+      install:
+        - pip install .
+
+      script:
+        - echo "Finished"  # TODO
+
+branches:
+  only:
+  - master
+  - /v\d+\.\d+\.\d+/  # Build tags
