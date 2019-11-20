@@ -446,6 +446,9 @@ class NameAddressDeduper(AddressDeduper):
         if word_index and name_dupe_class != duplicate_status.EXACT_DUPLICATE:
             name_fuzzy_dupe_class, name_fuzzy_sim = cls.name_dupe_similarity(a1_name, a2_name, word_index=word_index, languages=languages)
 
+            if name_fuzzy_dupe_class is None:
+                return NULL_DUPE
+
             if name_fuzzy_dupe_class >= name_dupe_class:
                 name_dupe_class = name_fuzzy_dupe_class
                 name_sim = name_fuzzy_sim
