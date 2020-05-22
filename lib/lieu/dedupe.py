@@ -245,7 +245,7 @@ class AddressDeduper(object):
             if match:
                 string_address[AddressComponents.POSTAL_CODE] = match.group(1)
 
-        return string_address.keys(), string_address.values()
+        return list(string_address.keys()), list(string_address.values())
 
     @classmethod
     def near_dupe_hashes(cls, address, languages=None,
