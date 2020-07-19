@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import Levenshtein
+import six
 from collections import OrderedDict
 
 
@@ -74,5 +75,5 @@ def jaccard_similarity(tokens1, tokens2):
     token1_counts = ordered_word_count(tokens1)
     token2_counts = ordered_word_count(tokens2)
 
-    intersection = sum((min(v, token2_counts[k]) for k, v in token1_counts.iteritems() if k in token2_counts))
+    intersection = sum((min(v, token2_counts[k]) for k, v in six.iteritems(token1_counts) if k in token2_counts))
     return float(intersection) / (sum(token1_counts.values()) + sum(token2_counts.values()) - intersection)

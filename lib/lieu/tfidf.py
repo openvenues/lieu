@@ -53,7 +53,7 @@ class TFIDF(WordIndex):
         reader = csv.reader(f, delimiter='\t')
         term_prefix_len = len(self.term_key_prefix)
         for key, val in reader:
-            val = long(val)
+            val = int(val)
             key = safe_decode(key)
             if key.startswith(self.term_key_prefix):
                 key = key[term_prefix_len:]
@@ -70,7 +70,7 @@ class TFIDF(WordIndex):
         return idf
 
     def prune(self, min_count):
-        self.idf_counts = {k: count for k, count in self.idf_counts.iteritems() if count >= min_count}
+        self.idf_counts = {k: count for k, count in six.iteritems(self.idf_counts) if count >= min_count}
 
     def finalize(self):
         if self.min_count > 1:
