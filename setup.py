@@ -11,6 +11,7 @@ def main():
             'leveldb',
             'python-geohash',
             'phonenumbers',
+            'python-geohash',
             'ujson',
             'mrjob',
         ],
