@@ -1,7 +1,7 @@
 import csv
 import math
 import six
-import ujson as json
+import json
 
 from collections import defaultdict, Counter
 

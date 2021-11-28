@@ -2,7 +2,7 @@ import csv
 import itertools
 import math
 import six
-import ujson as json
+import json
 
 from collections import defaultdict
 from six.moves import xrange

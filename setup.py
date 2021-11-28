@@ -11,7 +11,6 @@ def main():
             'leveldb',
             'python-geohash',
             'phonenumbers',
-            'ujson',
             'mrjob',
         ],
         package_dir={'': 'lib'},
