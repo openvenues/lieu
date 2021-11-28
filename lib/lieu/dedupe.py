@@ -15,7 +15,7 @@ from lieu.encoding import safe_decode
 from lieu.word_index import WordIndex
 
 
-whitespace_regex = re.compile('[\s]+')
+whitespace_regex = re.compile('[\\s]+')
 
 
 DEFAULT_LANGUAGES = ['en']
@@ -73,7 +73,7 @@ class AddressDeduper(object):
     name_and_address_keys = False
     with_name = False
 
-    us_zip5_pattern = re.compile('^\s*([0-9]{5})\-?([0-9]{4})\s*$')
+    us_zip5_pattern = re.compile('^\\s*([0-9]{5})\\-?([0-9]{4})\\s*$')
 
     @classmethod
     def address_dupe_status(cls, a1, a2, languages=None, fuzzy_street_name=False):
