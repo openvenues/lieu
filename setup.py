@@ -8,7 +8,7 @@ def main():
         install_requires=[
             'six',
             'postal>=1.1.6',
-            'leveldb',
+            'rocksdb',
             'python-geohash',
             'phonenumbers',
             'mrjob',

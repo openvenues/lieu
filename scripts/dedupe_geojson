@@ -1,7 +1,7 @@
 #!/usr/env/bin python -u
 
 import argparse
-import leveldb
+import rocksdb
 import operator
 import os
 import six
@@ -10,7 +10,7 @@ import uuid
 
 from six import itertools, operator
 
-import ujson as json
+import json
 from collections import OrderedDict, defaultdict
 
 from lieu.address import Address, AddressComponents, Coordinates
@@ -36,8 +36,26 @@ def open_geojson_file(filename):
     return f
 
 
+class RocksDBPresets:
+    BASIC = rocksdb.Options(create_if_missing=True)
+    PROD = rocksdb.Options(create_if_missing=True,
+                           max_open_files=300000,
+                           write_buffer_size=67108864,
+                           max_write_buffer_number=3,
+                           target_file_size_base=67108864,
+                           table_factory=rocksdb.BlockBasedTableFactory(
+                               filter_policy=rocksdb.BloomFilterPolicy(10),
+                               block_cache=rocksdb.LRUCache(2 * (1024 ** 3)),
+                               block_cache_compressed=rocksdb.LRUCache(500 * (1024 ** 2)))
+                           )
+
+
+def create_rocks_db(db_name, opts=RocksDBPresets.PROD, read_only=False):
+    return rocksdb.DB(db_name, opts, read_only=read_only)
+
+
 def db_key(feature_id):
-    return six.text_type(feature_id).zfill(15)
+    return safe_encode(six.text_type(feature_id).zfill(15))
 
 
 def value_guid(value):
@@ -64,7 +82,7 @@ def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
 
     if feature_id in dupe_pairs:
         for other_id, dupe in sorted(dupe_pairs[feature_id].items(), reverse=True):
-            other_value = json.loads(features_db.Get(db_key(other_id)))
+            other_value = json.loads(features_db.get(db_key(other_id)))
 
             is_canonical = other_id not in dupes
 
@@ -79,7 +97,7 @@ def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
 
 
 def db_get_address(features_db, feature_id):
-    result = features_db.Get(db_key(feature_id))
+    result = features_db.get(db_key(feature_id))
     if result:
         return Address.from_geojson(json.loads(result))
     else:
@@ -274,11 +292,10 @@ if __name__ == '__main__':
     print('Near-dupe tempfile: {}'.format(temp_filename))
 
     features_db_path = os.path.join(args.output_dir, args.features_db_name)
-    leveldb.DestroyDB(features_db_path)
 
     print('Features DB: {}'.format(features_db_path))
 
-    features_db = leveldb.LevelDB(features_db_path)
+    features_db = create_rocks_db(features_db_path)
 
     out_path = os.path.join(args.output_dir, args.output_filename)
     out_file = open(out_path, 'w')
@@ -295,13 +312,13 @@ if __name__ == '__main__':
     if geocode:
         have_latlon = set()
 
-    batch = leveldb.WriteBatch()
+    batch = rocksdb.WriteBatch()
     for feature_id, feature in id_features(args.files):
         DedupeResponse.add_random_guid(feature)
-        batch.Put(db_key(feature_id), json.dumps(feature))
+        batch.put(db_key(feature_id), safe_encode(json.dumps(feature)))
         if feature_id % 1000 == 0 and feature_id > 0:
-            features_db.Write(batch, sync=True)
-            batch = leveldb.WriteBatch()
+            features_db.write(batch, sync=True)
+            batch = rocksdb.WriteBatch()
 
         address = Address.from_geojson(feature)
         if geocode and Coordinates.LATITUDE in address and Coordinates.LONGITUDE in address:
@@ -320,14 +337,14 @@ if __name__ == '__main__':
         for h in hashes:
             map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
 
-    features_db.Write(batch, sync=True)
+    features_db.write(batch, sync=True)
 
     if geocode:
         print('  Number of records with lat/lon: {}'.format(len(have_latlon)))
 
     num_features = feature_id
 
-    features_db.CompactRange('\x00', '\xff')
+    features_db.compact_range()
 
     map_file.close()
 
@@ -411,8 +428,8 @@ if __name__ == '__main__':
 
     if possible_dupe_pairs:
         for j, (canonical_id, other_id) in enumerate(possible_dupe_pairs):
-            canonical_feature = json.loads(features_db.Get(db_key(canonical_id)))
-            other_feature = json.loads(features_db.Get(db_key(other_id)))
+            canonical_feature = json.loads(features_db.get(db_key(canonical_id)))
+            other_feature = json.loads(features_db.get(db_key(other_id)))
 
             canonical = db_get_address(features_db, canonical_id)
             other = db_get_address(features_db, other_id)
@@ -435,7 +452,7 @@ if __name__ == '__main__':
 
     if args.dupes_only:
         for feature_id in dupe_pairs:
-            value = features_db.Get(db_key(feature_id))
+            value = features_db.get(db_key(feature_id))
             response = dupe_response(feature_id, value, dupe_pairs, features_db, dupes)
             out_file.write(json.dumps(response) + '\n')
     else:
