@@ -106,14 +106,14 @@ def db_get_address(features_db, feature_id):
 def is_address_dupe(canonical, other, dupe_pairs, dupes, with_unit=False, fuzzy_street_names=False):
     address_languages = AddressDeduper.combined_place_languages(canonical, other)
     dupe = AddressDeduper.address_dupe_status(canonical, other, languages=address_languages, fuzzy_street_name=fuzzy_street_names)
-    if dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and (not with_unit or AddressDeduper.is_sub_building_dupe(canonical, other, languages=languages)):
+    if dupe.status in (duplicate_status.EXACT_DUPLICATE, duplicate_status.LIKELY_DUPLICATE) and (not with_unit or AddressDeduper.is_sub_building_dupe(canonical, other, languages=address_languages)):
         dupe_pairs[other_id][canonical_id] = dupe
         dupes[other_id] = max(dupe, dupes.get(other_id, NULL_DUPE))
         return True
     return False
 
 
-def is_name_address_dupe(canoncal, other, dupe_pairs, dupes, word_index=None,
+def is_name_address_dupe(canonical, other, dupe_pairs, dupes, word_index=None,
                          name_dupe_threshold=DedupeResponse.default_name_dupe_threshold,
                          needs_review_threshold=DedupeResponse.default_name_review_threshold,
                          with_address=True,
