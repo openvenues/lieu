@@ -15,10 +15,9 @@ class Dupe(object):
         duplicate_status.NEEDS_REVIEW: classifications.NEEDS_REVIEW,
     }
 
-    def __init__(self, status, sim, same_phone=None):
+    def __init__(self, status, sim):
         self.status = status
         self.sim = sim
-        self.same_phone = same_phone
 
     def __eq__(self, other):
         return (self.status, self.sim) == (other.status, other.sim)
@@ -39,11 +38,8 @@ class Dupe(object):
         return (self.status, self.sim) <= (other.status, other.sim)
 
     def __repr__(self):
-        return u'Dupe(status={}, sim={}{})'.format(self.dupe_class_map.get(self.status),
-                                                   self.sim,
-                                                   u'' if self.same_phone is None else u'same_phone={}'.format(self.same_phone))
-
-
+        return u'Dupe(status={}, sim={})'.format(self.dupe_class_map.get(self.status),
+                                                 self.sim)
 
 
 NULL_DUPE = Dupe(duplicate_status.NON_DUPLICATE, sim=0.0)
@@ -69,7 +65,7 @@ class DedupeResponse(object):
 
     @classmethod
     def random_guid(cls):
-        return uuid.uuid4().get_hex()
+        return str(uuid.uuid4())
 
     @classmethod
     def add_guid(cls, value, guid):

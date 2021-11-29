@@ -455,7 +455,7 @@ class NameAddressDeduper(AddressDeduper):
         if with_phone_number:
             name_dupe_class, phone_number_dupe = PhoneNumberDeduper.revised_dupe_class(name_dupe_class, a1, a2)
 
-        return Dupe(name_dupe_class, name_sim, same_phone_number=phone_number_dupe)
+        return Dupe(name_dupe_class, name_sim)
 
     @classmethod
     def is_dupe(cls, a1, a2, index=None, name_dupe_threshold=DedupeResponse.default_name_dupe_threshold, with_unit=False, fuzzy_street_name=False):
