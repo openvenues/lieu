@@ -4,6 +4,7 @@ import argparse
 import rocksdb
 import operator
 import os
+import shutil
 import six
 import subprocess
 import uuid
@@ -86,13 +87,11 @@ def dupe_response(feature_id, value, dupe_pairs, features_db, dupes):
 
             is_canonical = other_id not in dupes
 
-            classification = DedupeResponse.string_dupe_class(dupe.status)
-
             if is_canonical:
                 other_guid = value_guid(other_value)
                 DedupeResponse.add_guid(other_value, other_guid)
 
-            DedupeResponse.add_possible_dupe(response, value=other_value, classification=classification, is_canonical=is_canonical, similarity=dupe.sim, explain=explain)
+            DedupeResponse.add_possible_dupe(response, value=other_value, dupe=dupe, is_canonical=is_canonical, explain=explain)
     return response
 
 
@@ -295,6 +294,9 @@ if __name__ == '__main__':
 
     print('Features DB: {}'.format(features_db_path))
 
+    if os.path.exists(features_db_path):
+        shutil.rmtree(features_db_path)
+
     features_db = create_rocks_db(features_db_path)
 
     out_path = os.path.join(args.output_dir, args.output_filename)
@@ -440,7 +442,7 @@ if __name__ == '__main__':
 
     os.unlink(sorted_temp_filename)
 
-    print('* Building output file')
+    print('* Building output file: {}'.format(out_path))
 
     if not address_only:
         explain = DedupeResponse.explain_name_address_dupe(name_likely_dupe_threshold=name_dupe_threshold,
@@ -456,8 +458,10 @@ if __name__ == '__main__':
             response = dupe_response(feature_id, value, dupe_pairs, features_db, dupes)
             out_file.write(json.dumps(response) + '\n')
     else:
-        for feature_id, value in features_db.RangeIter():
-            feature_id = feature_id.lstrip('0')
+        iterator = features_db.iteritems()
+        iterator.seek_to_first()
+        for feature_id, value in iterator:
+            feature_id = safe_decode(feature_id).lstrip('0')
             response = dupe_response(feature_id, value, dupe_pairs, features_db, dupes)
             out_file.write(json.dumps(response) + '\n')
 
