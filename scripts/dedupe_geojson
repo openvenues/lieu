@@ -335,7 +335,7 @@ if __name__ == '__main__':
             hashes = AddressDeduper.near_dupe_hashes(address, with_latlon=use_latlon, with_city_or_equivalent=use_city, with_small_containing_boundaries=use_containing, with_postal_code=use_postal_code, with_zip5=use_zip5)
 
         for h in hashes:
-            map_file.write(safe_encode(u'{}\t{}\n'.format(h, feature_id)))
+            map_file.write(safe_decode(u'{}\t{}\n'.format(h, feature_id)))
 
     features_db.write(batch, sync=True)
 
@@ -394,7 +394,7 @@ if __name__ == '__main__':
 
     while True:
         try:
-            i, (key, vals) = kvs.next()
+            i, (key, vals) = next(kvs)
             candidate_dupes = OrderedDict.fromkeys([v for _, v in vals]).keys()
 
             num_candidate_dupes = len(candidate_dupes)

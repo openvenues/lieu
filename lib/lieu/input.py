@@ -32,4 +32,4 @@ class GeoJSONLineParser(GeoJSONParser):
             self.f = open(filename)
 
     def next_feature(self):
-        return json.loads(self.f.next().rstrip())
+        return json.loads(next(self.f).rstrip())
