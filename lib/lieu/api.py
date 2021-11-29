@@ -107,9 +107,9 @@ class DedupeResponse(object):
 
     @classmethod
     def add_possible_dupe(cls, response, value, dupe, is_canonical, explain=None):
-        if dupe.status in (cls.classifications.EXACT_DUPE, cls.classifications.LIKELY_DUPE):
+        if dupe.status in (Dupe.classifications.EXACT_DUPE, Dupe.classifications.LIKELY_DUPE):
             key = 'same_as'
-        elif dupe.status == cls.classifications.NEEDS_REVIEW:
+        elif dupe.status == Dupe.classifications.NEEDS_REVIEW:
             key = 'possibly_same_as'
         else:
             return response
