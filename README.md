@@ -2,7 +2,7 @@
 lieu is a Python library for deduping places/POIs, addresses, and streets around the world using [libpostal](github.com/openvenues/libpostal)'s international street address normalization.
 
 ## Installation
-```pip install git+https://github.com/openvenues/lieu```
+```pip install lieu```
 
 Note: libpostal and its Python binding are required to use this library, setup instructions [here](https://github.com/openvenues/pypostal).
 
