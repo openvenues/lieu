@@ -12,12 +12,12 @@ def safe_decode(value, encoding='utf-8', errors='strict'):
     if isinstance(value, (string_types, binary_type)):
         return value.decode(encoding, errors)
     else:
-        return binary_type(value).decode(encoding, errors)
+        return text_type(value)
 
 
 def safe_encode(value, incoming=None, encoding='utf-8', errors='strict'):
     if not isinstance(value, (string_types, binary_type)):
-        return binary_type(value)
+        return binary_type(repr(value), encoding=encoding)
 
     if isinstance(value, text_type):
         return value.encode(encoding, errors)
