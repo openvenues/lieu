@@ -5,7 +5,7 @@ import json
 
 from collections import defaultdict, Counter
 
-from lieu.encoding import safe_encode, safe_decode
+from lieu.encoding import safe_decode
 from lieu.floats import isclose
 from lieu.word_index import WordIndex
 
@@ -41,8 +41,8 @@ class TFIDF(WordIndex):
     def write(self, f):
         writer = csv.writer(f, delimiter='\t')
         for k, v in six.iteritems(self.idf_counts):
-            writer.writerow([safe_encode(u'{}{}'.format(self.term_key_prefix, safe_decode(k))), six.text_type(v)])
-        writer.writerow([self.doc_count_key, six.text_type(self.N)])
+            writer.writerow([safe_decode('{}{}'.format(self.term_key_prefix, safe_decode(k))), safe_decode(v)])
+        writer.writerow([self.doc_count_key, safe_decode(self.N)])
 
     def save(self, filename):
         f = open(filename, 'w')

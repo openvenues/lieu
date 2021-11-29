@@ -2,13 +2,10 @@ import csv
 import itertools
 import math
 import six
-import json
 
 from collections import defaultdict
-from six.moves import xrange
 
-from lieu.encoding import safe_encode, safe_decode
-from lieu.floats import isclose
+from lieu.encoding import safe_decode
 from lieu.word_index import WordIndex
 
 
@@ -19,7 +16,7 @@ class InformationGain(WordIndex):
     def write(self, f):
         writer = csv.writer(f, delimiter='\t')
         for k, v in six.iteritems(self.info_gain):
-            writer.writerow([safe_encode(k), six.text_type(v)])
+            writer.writerow([safe_decode(k), safe_decode(v)])
 
     def save(self, filename):
         f = open(filename, 'w')
