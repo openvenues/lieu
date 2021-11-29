@@ -1,5 +1,5 @@
 # lieu
-lieu is a Python library for deduping venues and addresses around the world using [libpostal](https://github.com/openvenues/libpostal)'s international street address normalization.
+lieu is a Python library for deduping places/POIs, addresses, and streets around the world using [libpostal](github.com/openvenues/libpostal)'s international street address normalization.
 
 ## Installation
 ```pip install git+https://github.com/openvenues/lieu```
